@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from copy import deepcopy
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Mapping, MutableMapping, Optional, TextIO
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 LOGGER_NAME = "customer_review_analysis"
 _HANDLER_MARKER = "_customer_review_analysis_handler"
+_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 DEFAULT_CONFIG = {
     "paths": {
@@ -63,6 +65,49 @@ ENV_OVERRIDES = {
 
 class ConfigError(ValueError):
     """Raised when the application configuration is missing or invalid."""
+
+
+def load_env_file(
+    path: Path | str = ".env",
+    environ: Optional[MutableMapping[str, str]] = None,
+    override: bool = False,
+) -> dict[str, str]:
+    """Load simple KEY=VALUE entries without overriding the real environment."""
+    env_path = Path(path)
+    if not env_path.exists():
+        return {}
+
+    target = os.environ if environ is None else environ
+    loaded: dict[str, str] = {}
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ConfigError(f"환경변수 파일을 읽을 수 없습니다: {env_path}") from exc
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            raise ConfigError(
+                f"환경변수 파일 형식이 올바르지 않습니다: {env_path}:{line_number}"
+            )
+
+        key, value = (part.strip() for part in line.split("=", 1))
+        if not _ENV_NAME_PATTERN.fullmatch(key):
+            raise ConfigError(
+                f"환경변수 이름이 올바르지 않습니다: {env_path}:{line_number}"
+            )
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+
+        loaded[key] = value
+        if override or key not in target:
+            target[key] = value
+
+    return loaded
 
 
 def _deep_merge(

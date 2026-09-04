@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.config import ConfigError, load_config
+from src.config import ConfigError, load_config, load_env_file
 
 
 class ConfigLoaderTests(unittest.TestCase):
@@ -90,6 +90,29 @@ class ConfigLoaderTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ConfigError, "skip 또는 upsert"):
                 load_config(path, environ={})
+
+    def test_env_file_loads_values_without_overwriting_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text(
+                "# comment\nAI_API_KEY=file-key\nexport AI_MODEL='test-model'\n",
+                encoding="utf-8",
+            )
+            environ = {"AI_API_KEY": "existing-key"}
+
+            loaded = load_env_file(path, environ=environ)
+
+        self.assertEqual(loaded["AI_API_KEY"], "file-key")
+        self.assertEqual(environ["AI_API_KEY"], "existing-key")
+        self.assertEqual(environ["AI_MODEL"], "test-model")
+
+    def test_invalid_env_file_line_raises_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("INVALID LINE", encoding="utf-8")
+
+            with self.assertRaisesRegex(ConfigError, "형식이 올바르지 않습니다"):
+                load_env_file(path, environ={})
 
 
 if __name__ == "__main__":
