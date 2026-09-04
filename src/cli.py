@@ -12,6 +12,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
 
+from src.config import ConfigError, configure_logging, load_config, load_env_file
+
 
 CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 
@@ -83,8 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-level",
         type=str.upper,
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
-        default="INFO",
-        help="콘솔 로그 레벨",
+        help="콘솔 로그 레벨(미지정 시 설정 파일 사용)",
     )
 
     subparsers = parser.add_subparsers(
@@ -302,4 +303,15 @@ def main(
     handlers: Optional[Mapping[str, CommandHandler]] = None,
 ) -> int:
     """Run the CLI and return a process exit code."""
-    return dispatch(parse_args(argv), handlers=handlers)
+    args = parse_args(argv)
+    try:
+        load_env_file()
+        app_config = load_config(args.config)
+        logger = configure_logging(app_config, level_override=args.log_level)
+    except ConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
+
+    setattr(args, "app_config", app_config)
+    logger.debug("설정 및 로깅 초기화 완료: command=%s", args.command)
+    return dispatch(args, handlers=handlers)

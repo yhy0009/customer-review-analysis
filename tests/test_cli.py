@@ -5,8 +5,10 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from src.cli import build_parser, dispatch, parse_args
+from src.cli import build_parser, dispatch, main, parse_args
+from src.config import ConfigError
 
 
 class CliParserTests(unittest.TestCase):
@@ -127,6 +129,42 @@ class CliDispatchTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         self.assertIn("아직 연결되지 않았습니다", stderr.getvalue())
+
+    def test_main_loads_config_and_passes_it_to_handler(self) -> None:
+        with mock.patch("src.cli.load_env_file"):
+            with mock.patch(
+                "src.cli.load_config",
+                return_value={
+                    "logging": {
+                        "level": "INFO",
+                        "file": None,
+                        "max_bytes": 1024,
+                        "backup_count": 1,
+                    }
+                },
+            ):
+                received = []
+
+                def handler(args: argparse.Namespace) -> None:
+                    received.append(args.app_config["logging"]["level"])
+
+                exit_code = main(["stats"], handlers={"stats": handler})
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(received, ["INFO"])
+
+    def test_main_reports_configuration_error(self) -> None:
+        stderr = io.StringIO()
+        with mock.patch("src.cli.load_env_file"):
+            with mock.patch(
+                "src.cli.load_config",
+                side_effect=ConfigError("테스트 설정 오류"),
+            ):
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = main(["stats"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("테스트 설정 오류", stderr.getvalue())
 
 
 if __name__ == "__main__":
