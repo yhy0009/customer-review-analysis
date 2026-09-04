@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from copy import deepcopy
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping, Optional
+from typing import Any, Mapping, MutableMapping, Optional, TextIO
 
 
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+LOGGER_NAME = "customer_review_analysis"
+_HANDLER_MARKER = "_customer_review_analysis_handler"
 
 DEFAULT_CONFIG = {
     "paths": {
@@ -204,3 +208,82 @@ def load_config(
     _apply_environment_overrides(config, os.environ if environ is None else environ)
     validate_config(config)
     return dict(config)
+
+
+def _clear_managed_handlers(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        if getattr(handler, _HANDLER_MARKER, False):
+            logger.removeHandler(handler)
+            handler.close()
+
+
+def _mark_handler(handler: logging.Handler) -> logging.Handler:
+    setattr(handler, _HANDLER_MARKER, True)
+    return handler
+
+
+def configure_logging(
+    config: Mapping[str, Any],
+    level_override: Optional[str] = None,
+    stream: Optional[TextIO] = None,
+) -> logging.Logger:
+    """Configure the application logger with console and rotating file output."""
+    logging_config = _require_mapping(config, "logging")
+    configured_level = level_override or logging_config.get("level")
+    if not isinstance(configured_level, str):
+        raise ConfigError("로그 레벨은 문자열이어야 합니다.")
+
+    level_name = configured_level.upper()
+    if level_name not in LOG_LEVELS:
+        raise ConfigError(f"지원하지 않는 로그 레벨입니다: {configured_level}")
+    level = getattr(logging, level_name)
+
+    logger = logging.getLogger(LOGGER_NAME)
+    _clear_managed_handlers(logger)
+    logger.setLevel(level)
+    logger.propagate = False
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    console_handler = _mark_handler(logging.StreamHandler(stream))
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    log_file = logging_config.get("file")
+    if log_file is not None:
+        log_path = Path(log_file)
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = _mark_handler(
+                RotatingFileHandler(
+                    log_path,
+                    maxBytes=logging_config["max_bytes"],
+                    backupCount=logging_config["backup_count"],
+                    encoding="utf-8",
+                )
+            )
+        except OSError as exc:
+            _clear_managed_handlers(logger)
+            raise ConfigError(f"로그 파일을 준비할 수 없습니다: {log_path}") from exc
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    return logger
+
+
+def get_logger(name: Optional[str] = None) -> logging.Logger:
+    """Return the application logger or one of its child loggers."""
+    if not name:
+        return logging.getLogger(LOGGER_NAME)
+    return logging.getLogger(f"{LOGGER_NAME}.{name}")
+
+
+def reset_logging() -> None:
+    """Close handlers installed by :func:`configure_logging`."""
+    logger = logging.getLogger(LOGGER_NAME)
+    _clear_managed_handlers(logger)
