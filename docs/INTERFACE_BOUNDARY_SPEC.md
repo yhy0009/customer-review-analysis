@@ -1,6 +1,6 @@
 # 고객 리뷰 분석 프로젝트 경계 인터페이스 명세
 
-> 문서 상태: Baseline v1.0 (확정안)
+> 문서 상태: Baseline v1.1 (코드 인터페이스 반영)
 >
 > 작성일: 2026-09-06
 >
@@ -83,17 +83,16 @@ collector ── RawReview ──► storage(raw) ──► cleaner
 - 모듈 간 전달 타입은 `dataclass`로 통일한다.
 - 공통 DTO와 enum은 `src/models.py`에 정의하고 `yhy0009`가 소유한다.
 - `pandas.DataFrame`은 수집·집계 모듈 내부에서만 사용하며 공식 경계 밖으로 노출하지 않는다.
-- 날짜 필드는 `datetime.date`, 생성·처리 시각은 UTC 기준 `datetime.datetime`을 사용한다.
+- Clean 이후 날짜 필드는 `datetime.date`, 생성·처리 시각은 UTC 기준
+  timezone-aware `datetime.datetime`을 사용한다.
 - 파일과 JSON으로 직렬화할 때 날짜·시각을 ISO 8601 문자열로 변환한다.
 
-공통 enum 값은 다음으로 고정한다.
+공통 enum은 Python 3.10 호환 `str, Enum`으로 구현하며 값은 다음으로 고정한다.
 
 ```python
-Sentiment = Literal["positive", "neutral", "negative"]
-DuplicatePolicy = Literal["skip", "upsert"]
-ProcessingStatus = Literal[
-    "RAW", "REJECTED", "CLEANED", "ANALYZED", "ANALYSIS_FAILED"
-]
+Sentiment: positive | neutral | negative
+DuplicatePolicy: skip | upsert
+ProcessingStatus: RAW | REJECTED | CLEANED | ANALYZED | ANALYSIS_FAILED
 ```
 
 ### 4.2 RawReview
@@ -102,17 +101,18 @@ ProcessingStatus = Literal[
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---:|---|
-| `source_review_id` | `str \| None` | 아니요 | 원본 데이터의 리뷰 ID. 수집 시 문자열로 정규화한다. |
-| `product_name` | `str` | 예 | 영화명 또는 제품명 |
-| `review_date` | `date` | 예 | 리뷰 작성일 |
-| `rating` | `str \| int \| float` | 예 | 정제 전 원본 별점 |
-| `review_text` | `str` | 예 | 정제 전 원문 |
+| `source_review_id` | `object \| None` | 아니요 | 원본 데이터의 리뷰 ID |
+| `product_name` | `object \| None` | 아니요 | 정제 전 영화명 또는 제품명 |
+| `review_date` | `object \| None` | 아니요 | 정제 전 작성일 |
+| `rating` | `object \| None` | 아니요 | 정제 전 원본 별점 |
+| `review_text` | `object \| None` | 아니요 | 정제 전 원문 |
 | `source_file` | `str \| None` | 아니요 | 유입 파일 추적용 |
 | `raw_payload` | `dict[str, object]` | 예 | 표준 필드 외 원본 컬럼. 없으면 빈 dict |
 
 공통 필드명은 `product_name`으로 확정한다. 수집기는 외부 컬럼 `movie_title`을
 `product_name`으로 매핑하고, CLI의 `--product`는 `ReviewFilter.product_name`으로
-변환한다. 저장소와 Export 컬럼도 `product_name`을 사용한다.
+변환한다. 저장소와 Export 컬럼도 `product_name`을 사용한다. RawReview는 결측값과
+잘못된 날짜·별점을 그대로 담을 수 있고, 유효성 판정은 Cleaner가 담당한다.
 
 ### 4.3 CleanReview
 
@@ -164,9 +164,9 @@ AI 분석기가 생성하고 저장소·조회·Export·시각화·리포트가 
 `list`, `stats`, `extract`, `dashboard`, `export`가 공유한다.
 
 ```python
-@dataclass(frozen=True)
+@dataclass(slots=True)
 class ReviewFilter:
-    sentiment: str | None = None
+    sentiment: Sentiment | None = None
     date_from: date | None = None
     date_to: date | None = None
     product_name: str | None = None
@@ -190,11 +190,11 @@ class ReviewQuery:
     filters: ReviewFilter
     page: int = 1
     size: int = 20
-    sort: Literal["id", "date", "rating", "sentiment"] = "id"
-    order: Literal["asc", "desc"] = "desc"
+    sort: SortField = SortField.ID
+    order: SortOrder = SortOrder.DESC
 ```
 
-모든 배치 결과는 최소한 다음 필드를 제공한다.
+모든 `BatchOperationResult`는 다음 필드를 제공한다.
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -202,12 +202,13 @@ class ReviewQuery:
 | `succeeded` | `int` | 정상 완료 건수 |
 | `skipped` | `int` | 중복 또는 기존 결과 때문에 건너뛴 건수 |
 | `failed` | `int` | 실패 건수 |
+| `rejected` | `int` | 정제 규칙에 의해 제외된 건수. 정제 외 배치는 0 |
 | `errors` | `list[ItemError]` | 행 번호 또는 리뷰 ID, 오류 코드·메시지, 재시도 가능 여부 |
 
-`CleanBatchResult`는 위 필드에 `reviews: list[CleanReview]`와 `rejected: int`를,
+`CleanBatchResult`는 위 필드에 `reviews: list[CleanReview]`를,
 `AnalysisBatchResult`는 `results: list[AnalysisResult]`를 추가한다. 모든 카운트는
-`processed == succeeded + skipped + failed + rejected` 관계를 만족한다. 정제 외 배치의
-`rejected`는 `0`으로 간주한다.
+`processed == succeeded + skipped + failed + rejected` 관계를 만족하고, 실패·제외
+건마다 `ItemError` 하나 이상을 제공한다. 성공 결과 목록의 길이는 `succeeded`와 같다.
 
 ## 5. CLI ↔ 기능 모듈 계약
 
@@ -231,19 +232,36 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 `src.cli.main()`에 전달한다.
 
 ```python
-def build_handlers(services: AppServices) -> dict[str, CommandHandler]:
+def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
     return {
-        "import": services.import_handler,
-        "clean": services.clean_handler,
-        "analyze": services.analyze_handler,
-        "extract": services.extract_handler,
-        "list": services.list_handler,
-        "show": services.show_handler,
-        "stats": services.stats_handler,
-        "dashboard": services.dashboard_handler,
-        "export": services.export_handler,
+        "import": _adapt(services.import_reviews, build_import_request),
+        "clean": _adapt(services.clean_reviews, build_clean_request),
+        "analyze": _adapt(services.analyze_reviews, build_analyze_request),
+        "extract": _adapt(services.extract_insights, build_extract_request),
+        "list": _adapt(services.list_reviews, build_list_request),
+        "show": _adapt(services.show_review, build_show_request),
+        "stats": _adapt(services.get_statistics, build_stats_request),
+        "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
+        "export": _adapt(services.export_reviews, build_export_request),
     }
 ```
+
+실제 코드의 Protocol 이름은 `ApplicationServices`이며 각 메서드는 아래 결과를 반환한다.
+
+| 메서드 | 요청 | 반환 |
+|---|---|---|
+| `import_reviews` | `ImportRequest` | `BatchOperationResult` |
+| `clean_reviews` | `CleanRequest` | `CleanBatchResult` |
+| `analyze_reviews` | `AnalyzeRequest` | `AnalysisBatchResult` |
+| `extract_insights` | `ExtractRequest` | `InsightResult` |
+| `list_reviews` | `ListRequest` | `Page[ReviewDetail]` |
+| `show_review` | `ShowRequest` | `ReviewDetail \| None` |
+| `get_statistics` | `StatsRequest` | `ReviewStatistics` |
+| `create_dashboard` | `DashboardRequest` | `DashboardResult` |
+| `export_reviews` | `ExportRequest` | `ExportResult` |
+
+구현체가 아직 없으므로 `main.py`의 기본 실행은 미연결 오류를 유지한다. 실제 서비스가
+준비되면 `src.handlers.build_handlers()`에 구현체를 주입해 CLI에 연결한다.
 
 ### 5.3 CLI 명령 인자
 
@@ -279,7 +297,7 @@ def load_reviews(
 - DataFrame은 수집기 내부 구현에만 사용한다.
 - 추가 원본 컬럼은 `RawReview.raw_payload: dict[str, object]`에 보존한다.
 - 외부 컬럼 `review_id`는 `source_review_id`로 매핑한다. 값이 없으면 `None`으로
-  반환하고 저장소가 내부 ID를 생성한다.
+  반환하고 저장소가 내부 ID를 생성한다. 값 정규화와 중복 키 생성은 저장소가 담당한다.
 - 빈 파일·미지원 확장자·컬럼 추론 실패는 `InputFileError`를 발생시킨다.
 - `load_reviews`는 읽기와 표준화만 담당하고, 저장은 `import` 핸들러가 수행한다.
 
@@ -328,6 +346,8 @@ analyze_review(
 analyze_reviews(
     reviews: Sequence[CleanReview],
     options: AnalysisOptions,
+    *,
+    force: bool = False,
 ) -> AnalysisBatchResult
 ```
 
@@ -372,12 +392,19 @@ class ReviewRepository(Protocol):
 
     def save_analysis(self, result: AnalysisResult) -> None: ...
 
+    def mark_analysis_failed(self, review_id: int, error_message: str) -> None: ...
+
     def get_review(self, review_id: int) -> ReviewDetail | None: ...
 
     def list_reviews(self, query: ReviewQuery) -> Page[ReviewDetail]: ...
 
     def get_statistics(self, filters: ReviewFilter | None = None) -> ReviewStatistics: ...
 ```
+
+`src/services.py`에는 위 Repository 외에도 `ReviewCollector`, `ReviewCleaner`,
+`ReviewAnalyzer`, `InsightExtractor`, `ReviewVisualizer`, `ReportGenerator`,
+`ReviewExporter` Protocol을 제공한다. 각 담당 모듈은 해당 Protocol을 구조적으로
+구현하고 CLI 계층은 구체 클래스가 아닌 `ApplicationServices`에만 의존한다.
 
 ### 8.1 중복 정책
 

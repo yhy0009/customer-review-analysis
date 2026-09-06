@@ -124,6 +124,10 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── __init__.py
 │   ├── cli.py               # argparse 서브커맨드 핸들러
 │   ├── config.py            # 설정 및 로깅(logging) 초기화
+│   ├── errors.py            # 공통 애플리케이션 예외 계층
+│   ├── models.py            # 모듈 경계용 공통 enum/dataclass
+│   ├── services.py          # 기능 모듈 및 애플리케이션 서비스 Protocol
+│   ├── handlers.py          # CLI 인자 → 요청 객체 변환 및 서비스 연결
 │   ├── collector.py         # 데이터 수집 (CSV/Excel 로더)
 │   ├── cleaner.py           # 데이터 정제 및 유효성 검증
 │   ├── storage.py           # SQLite/JSONL 영구 저장소 관리 모듈
