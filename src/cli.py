@@ -237,14 +237,18 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard_parser.add_argument(
         "--output",
         type=Path,
-        default=Path("output"),
-        help="차트와 리포트를 저장할 디렉터리",
+        help="차트와 리포트를 저장할 디렉터리(미지정 시 설정 파일 사용)",
     )
     dashboard_parser.add_argument(
         "--report-format",
         choices=("txt", "md"),
         default="md",
         help="종합 리포트 파일 형식",
+    )
+    dashboard_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="같은 이름의 기존 출력 파일 덮어쓰기",
     )
 
     export_parser = subparsers.add_parser(
@@ -272,6 +276,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="내보낼 리뷰의 최소 별점(1-5)",
     )
     export_parser.add_argument("--product", help="제품명 필터")
+    export_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="기존 출력 파일 덮어쓰기",
+    )
 
     return parser
 

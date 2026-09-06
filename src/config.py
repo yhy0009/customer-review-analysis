@@ -11,6 +11,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Optional, TextIO
 
+from src.errors import ConfigError
+
 
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 LOGGER_NAME = "customer_review_analysis"
@@ -61,10 +63,6 @@ ENV_OVERRIDES = {
     "CRA_LOG_LEVEL": (("logging", "level"), str),
     "CRA_LOG_FILE": (("logging", "file"), str),
 }
-
-
-class ConfigError(ValueError):
-    """Raised when the application configuration is missing or invalid."""
 
 
 def load_env_file(
