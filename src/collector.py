@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import logging
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Mapping
 
 import pandas as pd
 
+from src.config import get_logger
+from src.errors import InputFileError
 from src.models import RawReview
 
-logger = logging.getLogger(__name__)
+logger = get_logger("collector")
 
 
 # 외부 파일의 컬럼명을 내부 표준 필드로 매핑하기 위한 별칭
@@ -61,11 +63,6 @@ COLUMN_ALIASES = {
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
 
-class InputFileError(Exception):
-    """입력 파일을 읽거나 컬럼을 해석할 수 없을 때 발생하는 예외."""
-    pass
-
-
 def load_reviews(
     path: Path | str,
     column_overrides: Mapping[str, str] | None = None,
@@ -97,8 +94,6 @@ def load_reviews(
         list[RawReview]
 
     Raises:
-        FileNotFoundError:
-            파일이 존재하지 않을 경우
         InputFileError:
             지원하지 않는 확장자 또는 파일을 읽을 수 없는 경우
     """
@@ -106,7 +101,7 @@ def load_reviews(
     file_path = Path(path)
 
     if not file_path.exists():
-        raise FileNotFoundError(f"입력 파일을 찾을 수 없습니다: {file_path}")
+        raise InputFileError(f"입력 파일을 찾을 수 없습니다: {file_path}")
 
     if not file_path.is_file():
         raise InputFileError(f"파일이 아닙니다: {file_path}")
@@ -332,4 +327,10 @@ def _raw_value(value: object) -> object | None:
     except (TypeError, ValueError):
         pass
 
+    # Convert numpy numeric scalars from pandas to standard Python values so
+    # Raw JSON storage does not need to depend on pandas/numpy.
+    if isinstance(value, Integral):
+        return bool(value) if isinstance(value, bool) else int(value)
+    if isinstance(value, Real):
+        return float(value)
     return value

@@ -675,3 +675,13 @@ JSONL, 내보내기 및 실제 CLI 서비스 연결은 후속 작업이다.
 - 제품명 검색은 Unicode casefold 기반 부분 일치이며 `%`, `_`도 일반 문자로 검색한다.
 - 이전 별도 구현의 버전 없는 DB는 v1과 호환되지 않는다. 자동 덮어쓰기나 암묵적
   마이그레이션을 하지 않고 초기화 오류를 반환한다. 기존 데이터는 보존되며 별도 변환이 필요하다.
+
+
+### 17.2 수집·정제 연결
+
+수집기의 `load_reviews()`는 ID 없는 `RawReview`를 반환한다. 호출자는 먼저
+`save_raw_reviews()`로 저장하고 `fetch_raw_reviews(status=ProcessingStatus.RAW)`로
+다시 조회한 객체를 Cleaner에 전달한다. Cleaner는 해당 내부 ID를 그대로 유지한다.
+ID 없는 입력은 임의 번호를 붙이지 않고 배치의 실패 행으로 반환한다.
+Collector는 파일 없음·잘못된 형식 모두 `src.errors.InputFileError`를 사용하므로
+CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공통 logger를 사용한다.

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import logging
 import re
 from datetime import date, datetime, timezone
 from typing import Sequence
 
+from src.config import get_logger
+from src.errors import ValidationError
 from src.models import (
     CleanBatchResult,
     CleanReview,
@@ -13,7 +14,7 @@ from src.models import (
     RawReview,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger("cleaner")
 
 
 def clean_reviews(
@@ -82,7 +83,7 @@ def clean_reviews(
                 ItemError(
                     item_ref=_item_ref(raw_review, index),
                     code="CLEANING_ERROR",
-                    message=str(exc),
+                    message="정제 처리에 실패했습니다. 저장소 내부 ID와 입력 형식을 확인하세요.",
                     retryable=False,
                 )
             )
@@ -110,6 +111,9 @@ def _clean_one(
     min_length: int,
 ) -> CleanReview:
     """RawReview 한 건을 CleanReview로 변환한다."""
+
+    if raw_review.id is None:
+        raise ValidationError("Raw reviews must be stored and fetched before cleaning")
 
     # 1. product_name
     product_name = _normalize_text(raw_review.product_name)
@@ -162,7 +166,7 @@ def _clean_one(
     cleaned_at = datetime.now(timezone.utc)
 
     return CleanReview(
-        id=index,
+        id=raw_review.id,
         source_review_id=source_review_id,
         product_name=product_name,
         review_date=review_date,
@@ -323,20 +327,9 @@ def _item_ref(
     raw_review: RawReview,
     index: int,
 ) -> str:
-    """
-    오류 발생 시 사용할 리뷰 식별자를 만든다.
-
-    source_review_id가 있으면 그것을 우선 사용하고,
-    없으면 입력 행 번호를 사용한다.
-    """
-
-    source_id = _normalize_source_id(
-        raw_review.source_review_id
-    )
-
-    if source_id:
-        return source_id
-
+    """Use storage identity or row number; never expose source IDs in logs."""
+    if raw_review.id is not None:
+        return str(raw_review.id)
     return f"row:{index}"
 
 
