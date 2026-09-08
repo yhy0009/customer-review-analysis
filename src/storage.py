@@ -192,7 +192,16 @@ def _normalized_number(value: object) -> str:
     try:
         number = Decimal(text)
         if number.is_finite():
-            return str(number.normalize()) if number != 0 else "0"
+            if number == 0:
+                return "0"
+            # Decimal.normalize() uses the active precision and can round large
+            # raw values or overflow. Strip zeros exactly, without arithmetic.
+            sign, digits, exponent = number.as_tuple()
+            digits = list(digits)
+            while digits[-1] == 0:
+                digits.pop()
+                exponent += 1
+            return ("-" if sign else "") + "".join(map(str, digits)) + "e" + str(exponent)
     except InvalidOperation:
         pass
     return text

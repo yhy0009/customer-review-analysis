@@ -1,6 +1,7 @@
 """SQLite tests use temporary files and independent connections to verify persistence."""
 
 import json
+import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 import tempfile
@@ -188,6 +189,13 @@ class SQLiteRawTests(unittest.TestCase):
         self.assertEqual(self.repository.fetch_raw_reviews()[0].review_text, first.review_text)
         self.assertTrue(self.raw_row()["dedupe_key"].startswith("sha256:"))
 
+    def test_invalid_large_ratings_are_preserved_without_rounding_or_overflow(self):
+        ratings = ["12345678901234567890123456781", "12345678901234567890123456782",
+                   "1e999999999", "5", "5.000"]
+        result = self.save(*(RawReview(rating=rating, review_text="same") for rating in ratings))
+        self.assertEqual((result.succeeded, result.skipped), (4, 1))
+        self.assertEqual([row.rating for row in self.repository.fetch_raw_reviews()], ratings[:4])
+
     def test_hash_boundaries_do_not_collide(self):
         self.save(RawReview(product_name="a|b", review_date="c", rating=1, review_text="d"),
                   RawReview(product_name="a", review_date="b|c", rating=1, review_text="d"))
@@ -242,6 +250,77 @@ class SQLiteRawTests(unittest.TestCase):
             self.save()
         with self.assertRaises(StorageError):
             self.repository.fetch_raw_reviews()
+
+    def test_infrastructure_failure_rolls_back_entire_batch_and_restores_children(self):
+        self.save(RawReview(source_review_id="original", review_text="original"))
+        self.seed_dependents()
+        before = self.raw_row()
+        with sqlite3.connect(self.path) as connection:
+            # Integer overflow is an actual SQLite OperationalError at execution
+            # time, after earlier rows have succeeded inside the same transaction.
+            connection.execute("""CREATE TRIGGER fail_bad_insert BEFORE INSERT ON raw_reviews
+                WHEN NEW.dedupe_key = 'id:bad'
+                BEGIN SELECT abs(-9223372036854775808); END""")
+        with self.assertLogs("customer_review_analysis.storage", level="ERROR") as logs:
+            with self.assertRaises(StorageError):
+                self.save(RawReview(source_review_id="original", review_text="SECRET_CHANGED"),
+                          RawReview(source_review_id="new"), RawReview(source_review_id="bad"),
+                          policy=DuplicatePolicy.UPSERT)
+        self.assertNotIn("SECRET", str(logs.output))
+        self.assertEqual(self.raw_row(), before)
+        self.assertEqual(len(self.repository.fetch_raw_reviews()), 1)
+        self.assertEqual(self.dependent_counts(), (1, 1))
+        # Connection remains usable after rollback.
+        self.assertEqual(self.save(RawReview(source_review_id="after_failure")).succeeded, 1)
+        self.repository.close()
+        with SQLiteReviewRepository(self.path) as reopened:
+            self.assertEqual([r.source_review_id for r in reopened.fetch_raw_reviews()],
+                             ["original", "after_failure"])
+
+    def test_row_constraint_failure_restores_deleted_children_and_commits_other_rows(self):
+        self.save(RawReview(source_review_id="original", review_text="original"))
+        self.seed_dependents()
+        before = self.raw_row()
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("""CREATE TRIGGER reject_update BEFORE UPDATE ON raw_reviews
+                WHEN NEW.dedupe_key = 'id:original'
+                BEGIN SELECT RAISE(ABORT, 'SECRET_CONSTRAINT'); END""")
+        with self.assertLogs("customer_review_analysis.storage", level="WARNING") as logs:
+            result = self.save(RawReview(source_review_id="original", review_text="replacement"),
+                               RawReview(source_review_id="new"), policy=DuplicatePolicy.UPSERT)
+        self.assertEqual((result.processed, result.succeeded, result.failed), (2, 1, 1))
+        self.assertEqual(result.errors[0].item_ref, "1")
+        self.assertNotIn("SECRET", str(logs.output) + str(result.errors))
+        self.assertEqual(self.raw_row(), before)
+        self.assertEqual(self.dependent_counts(), (1, 1))
+        self.assertEqual(len(self.repository.fetch_raw_reviews()), 2)
+
+    def test_corrupt_persisted_json_is_a_storage_error(self):
+        self.save(RawReview(source_review_id="a"))
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("UPDATE raw_reviews SET raw_payload='SECRET_BROKEN_JSON'")
+        with self.assertLogs("customer_review_analysis.storage", level="ERROR") as logs:
+            with self.assertRaises(StorageError) as error:
+                self.repository.fetch_raw_reviews()
+        self.assertNotIn("SECRET", str(error.exception) + str(logs.output))
+
+    def test_relative_database_path_is_based_on_project_root(self):
+        project_root = Path(__file__).resolve().parents[1]
+        relative_path = os.path.relpath(Path(self.temp.name) / "relative.db", project_root)
+        previous = Path.cwd()
+        try:
+            os.chdir(self.temp.name)
+            with SQLiteReviewRepository(relative_path) as repository:
+                self.assertEqual(repository.database_path, (Path(self.temp.name) / "relative.db").resolve())
+        finally:
+            os.chdir(previous)
+
+    def test_optional_raw_id_validation_is_backward_compatible(self):
+        self.assertIsNone(RawReview().id)
+        self.assertEqual(RawReview(id=1).id, 1)
+        for invalid in (0, -1, True, "1"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValidationError):
+                RawReview(id=invalid)
 
     def test_sql_values_are_bound_as_parameters(self):
         text = "'); DROP TABLE raw_reviews; --"
