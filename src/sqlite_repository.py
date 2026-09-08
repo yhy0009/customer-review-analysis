@@ -1,31 +1,22 @@
-"""SQLite implementation of the :class:`~src.storage.ReviewRepository` contract.
-
-경계 명세(docs/INTERFACE_BOUNDARY_SPEC.md 8절)의 기준 백엔드 구현이다.
-
-핵심 설계:
-- Raw / Clean / Analysis를 각각 raw_reviews, clean_reviews, analysis_results
-  테이블로 분리한다.
-- 중복 판정 키(dedupe_key)는 raw와 clean 양쪽에서 동일하게 계산되며, 두 영역을
-  잇는 연결 키로도 사용한다.
-- CleanReview.id는 저장소가 소유한다. save_clean_reviews는 입력 객체의 id를
-  무시하고 DB가 부여한 AUTOINCREMENT id를 사용한다.
-- 데이터 한 건의 문제는 행 단위 savepoint로 격리하고 성공 건은 커밋한다.
-  연결/스키마 같은 인프라 문제는 배치 전체를 롤백하고 StorageError를 낸다.
-"""
+"""SQLite implementation shared by Raw, Clean, Analysis and read models."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
+import math
 import sqlite3
-from collections import Counter, defaultdict
+import unicodedata
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
 
 from src.config import get_logger
-from src.errors import StorageError
+from src.errors import StorageError, ValidationError
+
+from typing import Any, List, Mapping, Optional, Sequence
+from collections import Counter, defaultdict
+
 from src.models import (
     AnalysisResult,
     BatchOperationResult,
@@ -33,6 +24,9 @@ from src.models import (
     DuplicatePolicy,
     ItemError,
     KeywordCount,
+    Sentiment,
+    SortField,
+    SortOrder,
     Page,
     ProcessingStatus,
     RawReview,
@@ -40,94 +34,156 @@ from src.models import (
     ReviewFilter,
     ReviewQuery,
     ReviewStatistics,
-    Sentiment,
-    SortField,
-    SortOrder,
 )
 
-logger = get_logger("storage.sqlite")
 
-
-# 상위 통계에서 노출하는 키워드 상위 개수
-_TOP_KEYWORD_LIMIT = 10
-
-# AI 입력에 영향을 주는 Clean 필드. 이 값이 바뀌면 기존 분석 결과를 폐기한다.
-_AI_RELEVANT_FIELDS = ("product_name", "review_date", "rating", "review_text")
-
-_WHITESPACE = re.compile(r"\s+")
-
-_DATE_FORMATS = (
-    "%Y-%m-%d",
-    "%Y/%m/%d",
-    "%Y.%m.%d",
-    "%Y-%m-%d %H:%M:%S",
-    "%Y/%m/%d %H:%M:%S",
-    "%Y.%m.%d %H:%M:%S",
+# Version 1 is the initial schema; future changes require an explicit migration.
+_SCHEMA_VERSION = 1
+_SCHEMA = (
+    """CREATE TABLE raw_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        source_review_id TEXT,
+        product_name TEXT NOT NULL,
+        review_date TEXT NOT NULL,
+        rating TEXT NOT NULL,
+        review_text TEXT NOT NULL,
+        source_file TEXT,
+        raw_payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'RAW'
+            CHECK (status IN ('RAW', 'REJECTED', 'CLEANED', 'ANALYZED', 'ANALYSIS_FAILED')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE clean_reviews (
+        id INTEGER PRIMARY KEY REFERENCES raw_reviews(id) ON DELETE CASCADE,
+        source_review_id TEXT,
+        product_name TEXT NOT NULL,
+        review_date TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        review_text TEXT NOT NULL,
+        cleaned_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'CLEANED'
+            CHECK (status IN ('CLEANED', 'ANALYZED', 'ANALYSIS_FAILED')),
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE analysis_results (
+        review_id INTEGER PRIMARY KEY REFERENCES clean_reviews(id) ON DELETE CASCADE,
+        sentiment TEXT NOT NULL CHECK (sentiment IN ('positive', 'neutral', 'negative')),
+        confidence REAL NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
+        summary TEXT,
+        keywords TEXT NOT NULL,
+        analyzed_at TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_version TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX idx_raw_reviews_status ON raw_reviews(status)",
 )
-
-_SORT_COLUMNS = {
-    SortField.ID: "c.id",
-    SortField.DATE: "c.review_date",
-    SortField.RATING: "c.rating",
-    SortField.SENTIMENT: "a.sentiment",
+_SCHEMA_COLUMNS = {
+    "raw_reviews": "id, dedupe_key, source_review_id, product_name, review_date, rating, "
+                   "review_text, source_file, raw_payload, status, created_at, updated_at",
+    "clean_reviews": "id, source_review_id, product_name, review_date, rating, review_text, "
+                     "cleaned_at, status, error_message, created_at, updated_at",
+    "analysis_results": "review_id, sentiment, confidence, summary, keywords, analyzed_at, "
+                        "provider, model, prompt_version, created_at, updated_at",
 }
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS raw_reviews (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    dedupe_key        TEXT    NOT NULL UNIQUE,
-    source_review_id  TEXT,
-    product_name      TEXT,
-    review_date       TEXT,
-    rating            TEXT,
-    review_text       TEXT,
-    source_file       TEXT,
-    raw_payload       TEXT    NOT NULL DEFAULT '{}',
-    status            TEXT    NOT NULL DEFAULT 'RAW',
-    created_at        TEXT    NOT NULL,
-    updated_at        TEXT    NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS clean_reviews (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    raw_id            INTEGER,
-    dedupe_key        TEXT    NOT NULL UNIQUE,
-    source_review_id  TEXT,
-    product_name      TEXT    NOT NULL,
-    review_date       TEXT    NOT NULL,
-    rating            INTEGER NOT NULL,
-    review_text       TEXT    NOT NULL,
-    status            TEXT    NOT NULL DEFAULT 'CLEANED',
-    cleaned_at        TEXT    NOT NULL,
-    updated_at        TEXT    NOT NULL,
-    FOREIGN KEY (raw_id) REFERENCES raw_reviews (id) ON DELETE SET NULL
-);
-
-CREATE TABLE IF NOT EXISTS analysis_results (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    review_id      INTEGER NOT NULL UNIQUE,
-    sentiment      TEXT    NOT NULL,
-    confidence     REAL    NOT NULL,
-    summary        TEXT,
-    keywords       TEXT    NOT NULL DEFAULT '[]',
-    analyzed_at    TEXT    NOT NULL,
-    provider       TEXT    NOT NULL,
-    model          TEXT    NOT NULL,
-    prompt_version TEXT,
-    FOREIGN KEY (review_id) REFERENCES clean_reviews (id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_reviews (status);
-CREATE INDEX IF NOT EXISTS idx_clean_status ON clean_reviews (status);
-CREATE INDEX IF NOT EXISTS idx_clean_review_date ON clean_reviews (review_date);
-CREATE INDEX IF NOT EXISTS idx_clean_product_name ON clean_reviews (product_name);
-"""
+def _json_value(value: object) -> object:
+    """Convert file-input values to JSON without silently stringifying objects."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if not math.isfinite(value):
+            raise ValueError("Non-finite numeric value")
+        return value
+    if isinstance(value, datetime):
+        if value.utcoffset() is not None:
+            return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: _json_value(item) for key, item in value.items()}
+    raise ValueError("Unsupported raw value")
 
 
-# ---------------------------------------------------------------------------
-# 직렬화 헬퍼
-# ---------------------------------------------------------------------------
+def _json_dump(value: object) -> str:
+    return json.dumps(_json_value(value), ensure_ascii=False, allow_nan=False,
+                      sort_keys=True, separators=(",", ":"))
 
+
+def _normalized_text(value: object) -> str:
+    value = _json_value(value)
+    if value is None:
+        return ""
+    if isinstance(value, (list, dict)):
+        text = _json_dump(value)
+    else:
+        text = str(value)
+    return " ".join(unicodedata.normalize("NFKC", text).split())
+
+
+def _normalized_number(value: object) -> str:
+    text = _normalized_text(value)
+    try:
+        number = Decimal(text)
+        if number.is_finite():
+            if number == 0:
+                return "0"
+            # Decimal.normalize() uses the active precision and can round large
+            # raw values or overflow. Strip zeros exactly, without arithmetic.
+            sign, digits, exponent = number.as_tuple()
+            digits = list(digits)
+            while digits[-1] == 0:
+                digits.pop()
+                exponent += 1
+            return ("-" if sign else "") + "".join(map(str, digits)) + "e" + str(exponent)
+    except InvalidOperation:
+        pass
+    return text
+
+
+def _raw_dedupe_key(review: RawReview) -> str:
+    source_id = _normalized_text(review.source_review_id)
+    # Excel often represents integer identifiers as floats. Preserve textual
+    # leading zeros ("001" remains different from "1").
+    if isinstance(review.source_review_id, (int, float)) and not isinstance(
+        review.source_review_id, bool
+    ) and source_id:
+        number = Decimal(source_id)
+        if number == number.to_integral_value():
+            source_id = str(int(number))
+    if source_id:
+        return "id:" + source_id
+    review_date = _normalized_text(review.review_date)
+    try:
+        review_date = date.fromisoformat(review_date).isoformat()
+    except ValueError:
+        pass  # Invalid dates remain raw input for the cleaner.
+    fields = [
+        _normalized_text(review.product_name), review_date,
+        _normalized_number(review.rating), _normalized_text(review.review_text),
+    ]
+    # JSON framing avoids collisions between adjacent fields containing delimiters.
+    return "sha256:" + hashlib.sha256(_json_dump(fields).encode("utf-8")).hexdigest()
+
+
+_TOP_KEYWORD_LIMIT = 10
+_AI_RELEVANT_FIELDS = ("product_name", "review_date", "rating", "review_text")
+_SORT_COLUMNS = {
+    SortField.ID: "c.id", SortField.DATE: "c.review_date",
+    SortField.RATING: "c.rating", SortField.SENTIMENT: "a.sentiment",
+}
 
 def _utc_iso(value: datetime) -> str:
     """timezone-aware datetime을 Z가 포함된 UTC ISO 8601 문자열로 만든다."""
@@ -150,93 +206,6 @@ def _parse_date(text: str) -> date:
     return date.fromisoformat(text)
 
 
-# ---------------------------------------------------------------------------
-# dedupe_key 계산 (명세 8.1)
-#   1) source_review_id가 있으면 정규화한 값을 사용한다.
-#   2) 없으면 정규화한 product_name/review_date/rating/review_text의 SHA-256.
-# raw와 clean이 같은 리뷰에 대해 동일한 키를 만들도록 정규화를 공유한다.
-# ---------------------------------------------------------------------------
-
-
-def _norm_text(value: object | None) -> str:
-    if value is None:
-        return ""
-    return _WHITESPACE.sub(" ", str(value)).strip()
-
-
-def _norm_source_id(value: object | None) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _norm_date_str(value: object | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    text = str(value).strip()
-    if not text:
-        return ""
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
-    except ValueError:
-        pass
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(text, fmt).date().isoformat()
-        except ValueError:
-            continue
-    return text
-
-
-def _norm_rating_str(value: object | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return str(value)
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return str(int(value)) if value.is_integer() else str(value)
-    text = str(value).strip()
-    try:
-        number = float(text)
-    except ValueError:
-        return text
-    return str(int(number)) if number.is_integer() else text
-
-
-def _dedupe_key(
-    source_review_id: object | None,
-    product_name: object | None,
-    review_date: object | None,
-    rating: object | None,
-    review_text: object | None,
-) -> str:
-    source_id = _norm_source_id(source_review_id)
-    if source_id:
-        return f"sid:{source_id}"
-
-    payload = "\x1f".join(
-        (
-            _norm_text(product_name),
-            _norm_date_str(review_date),
-            _norm_rating_str(rating),
-            _norm_text(review_text),
-        )
-    )
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
-
-
-# ---------------------------------------------------------------------------
-# 필터 → SQL WHERE 변환
-# ---------------------------------------------------------------------------
-
-
 def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
     """ReviewFilter를 WHERE 절과 파라미터로 변환한다 (별칭 c=clean, a=analysis)."""
     if filters is None:
@@ -256,8 +225,9 @@ def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
         params.append(filters.date_to.isoformat())
     if filters.product_name is not None:
         # 대소문자를 구분하지 않는 부분 일치
-        clauses.append("LOWER(c.product_name) LIKE ?")
-        params.append(f"%{filters.product_name.lower()}%")
+        clauses.append("CASEFOLD(c.product_name) LIKE ? ESCAPE '!' ")
+        literal = filters.product_name.casefold().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        params.append(f"%{literal}%")
     if filters.rating is not None:
         clauses.append("c.rating = ?")
         params.append(filters.rating)
@@ -269,345 +239,293 @@ def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
     return where, params
 
 
-# ---------------------------------------------------------------------------
-# Repository
-# ---------------------------------------------------------------------------
+class SQLiteReviewRepository:
+    """File-backed repository using schema v1 and stable Raw/Clean IDs.
 
-
-class SqliteReviewRepository:
-    """SQLite 기반 ReviewRepository 구현."""
+    Relative database paths are resolved against the project root.
+    """
 
     def __init__(self, database_path: Path | str) -> None:
-        self._path = Path(database_path)
+        if not str(database_path).strip() or str(database_path) == ":memory:":
+            raise ValidationError("A persistent database file path is required")
+        path = Path(database_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parents[1] / path
+        self.database_path = path.resolve()
+        self._connection: Optional[sqlite3.Connection] = None
+        self._logger = get_logger("storage")
         try:
-            if str(self._path) != ":memory:":
-                self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._path))
-        except (sqlite3.Error, OSError) as exc:
-            raise StorageError(f"저장소에 연결할 수 없습니다: {self._path}") from exc
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            self._connection = sqlite3.connect(self.database_path)
+            self._connection.row_factory = sqlite3.Row
+            self._connection.create_function("CASEFOLD", 1, lambda value: value.casefold(), deterministic=True)
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            self._initialize_schema()
+        except (OSError, sqlite3.Error, StorageError) as exc:
+            self.close()
+            self._logger.error("SQLite initialization failed")
+            raise StorageError("SQLite 저장소를 초기화할 수 없습니다.") from exc
 
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._initialize_schema()
-
-    @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "SqliteReviewRepository":
-        """설정의 storage 섹션에서 database_path를 읽어 저장소를 만든다."""
-        storage = config.get("storage")
-        if not isinstance(storage, Mapping):
-            raise StorageError("설정 섹션 'storage'가 올바르지 않습니다.")
-        database_path = storage.get("database_path")
-        if not isinstance(database_path, str) or not database_path.strip():
-            raise StorageError("설정 항목 'storage.database_path'가 필요합니다.")
-        return cls(database_path)
-
-    # -- lifecycle ---------------------------------------------------------
+    def _require_connection(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise StorageError("SQLite 저장소가 닫혀 있습니다.")
+        return self._connection
 
     def _initialize_schema(self) -> None:
-        try:
-            self._conn.executescript(_SCHEMA)
-            self._conn.commit()
-        except sqlite3.Error as exc:
-            raise StorageError("저장소 스키마를 초기화할 수 없습니다.") from exc
-
-    def close(self) -> None:
-        self._conn.close()
-
-    def __enter__(self) -> "SqliteReviewRepository":
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self.close()
-
-    # -- raw ---------------------------------------------------------------
+        connection = self._require_connection()
+        # Lock before inspecting version so concurrent first opens cannot race.
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 0:
+                existing = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+                if existing:
+                    raise StorageError("기존 미등록 스키마는 자동으로 변경하지 않습니다.")
+                for statement in _SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version = 1")
+            elif version != _SCHEMA_VERSION:
+                raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
+            for table, columns in _SCHEMA_COLUMNS.items():
+                connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
 
     def save_raw_reviews(
         self,
         reviews: Sequence[RawReview],
         policy: DuplicatePolicy,
     ) -> BatchOperationResult:
-        processed = len(reviews)
+        """Commit valid rows together; isolate row errors using savepoints.
+
+        Input IDs are ignored. UPSERT retains the stored ID and created_at,
+        resets status to RAW, and invalidates dependent Clean/Analysis rows.
+        """
+        if not isinstance(policy, DuplicatePolicy):
+            raise ValidationError("policy must be a DuplicatePolicy value")
+        connection = self._require_connection()
         succeeded = skipped = failed = 0
-        errors: list[ItemError] = []
-        now = _utc_iso(datetime.now(timezone.utc))
-
-        for index, raw in enumerate(reviews, start=1):
-            key = _dedupe_key(
-                raw.source_review_id,
-                raw.product_name,
-                raw.review_date,
-                raw.rating,
-                raw.review_text,
-            )
-            savepoint = f"raw_{index}"
-            self._conn.execute(f"SAVEPOINT {savepoint}")
-            try:
-                existing = self._conn.execute(
-                    "SELECT id FROM raw_reviews WHERE dedupe_key = ?", (key,)
-                ).fetchone()
-
-                if existing is None:
-                    self._insert_raw(raw, key, now)
-                    succeeded += 1
-                elif policy is DuplicatePolicy.SKIP:
-                    skipped += 1
-                else:
-                    self._upsert_raw(existing["id"], raw, key, now)
-                    succeeded += 1
-
-                self._conn.execute(f"RELEASE {savepoint}")
-            except sqlite3.IntegrityError as exc:
-                # 한 건의 데이터 문제는 격리하고 계속 진행한다.
-                self._conn.execute(f"ROLLBACK TO {savepoint}")
-                self._conn.execute(f"RELEASE {savepoint}")
-                failed += 1
-                errors.append(
-                    ItemError(
-                        item_ref=_norm_source_id(raw.source_review_id) or f"row:{index}",
-                        code="RAW_SAVE_ERROR",
-                        message=str(exc),
-                        retryable=False,
-                    )
-                )
-                logger.warning("Raw review 저장 실패: row=%s", index)
-            except sqlite3.Error as exc:
-                # 인프라 오류는 배치 전체를 롤백한다.
-                self._conn.rollback()
-                raise StorageError("Raw 리뷰 저장 중 저장소 오류가 발생했습니다.") from exc
-
-        self._conn.commit()
-        logger.info(
-            "save_raw_reviews 완료: processed=%d succeeded=%d skipped=%d failed=%d",
-            processed,
-            succeeded,
-            skipped,
-            failed,
+        errors: List[ItemError] = []
+        try:
+            with connection:
+                # BEGIN is essential: releasing a top-level savepoint alone would
+                # commit each row and prevent whole-batch rollback on a DB failure.
+                connection.execute("BEGIN IMMEDIATE")
+                for row_number, review in enumerate(reviews, start=1):
+                    connection.execute("SAVEPOINT raw_item")
+                    try:
+                        if not isinstance(review, RawReview):
+                            raise ValueError("Expected RawReview")
+                        if review.source_file is not None and not isinstance(review.source_file, str):
+                            raise ValueError("Invalid source_file")
+                        if not isinstance(review.raw_payload, dict):
+                            raise ValueError("Invalid raw_payload")
+                        values = tuple(_json_dump(value) for value in (
+                            review.source_review_id, review.product_name, review.review_date,
+                            review.rating, review.review_text,
+                        )) + (review.source_file, _json_dump(review.raw_payload))
+                        key = _raw_dedupe_key(review)
+                        existing = connection.execute(
+                            "SELECT id FROM raw_reviews WHERE dedupe_key = ?", (key,)
+                        ).fetchone()
+                        if existing is not None and policy is DuplicatePolicy.SKIP:
+                            skipped += 1
+                        else:
+                            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                            if existing is None:
+                                connection.execute(
+                                    "INSERT INTO raw_reviews (source_review_id, product_name, "
+                                    "review_date, rating, review_text, source_file, raw_payload, "
+                                    "dedupe_key, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                    values + (key, now, now),
+                                )
+                            else:
+                                # Foreign-key cascade also removes analysis_results.
+                                connection.execute("DELETE FROM clean_reviews WHERE id = ?", (existing["id"],))
+                                connection.execute(
+                                    "UPDATE raw_reviews SET source_review_id=?, product_name=?, "
+                                    "review_date=?, rating=?, review_text=?, source_file=?, raw_payload=?, "
+                                    "status='RAW', updated_at=? WHERE id=?",
+                                    values + (now, existing["id"]),
+                                )
+                            succeeded += 1
+                    except (ValueError, TypeError, OverflowError, RecursionError,
+                            sqlite3.IntegrityError):
+                        connection.execute("ROLLBACK TO SAVEPOINT raw_item")
+                        failed += 1
+                        errors.append(ItemError(
+                            item_ref=str(row_number), code="RAW_STORAGE_INVALID_ITEM",
+                            message="원본 행을 저장할 수 없습니다. 값의 형식과 저장 제약을 확인하세요.",
+                        ))
+                        self._logger.warning("Raw row storage failed: row=%d", row_number)
+                    finally:
+                        connection.execute("RELEASE SAVEPOINT raw_item")
+        except sqlite3.Error as exc:
+            self._logger.error("Raw batch rolled back due to a storage failure")
+            raise StorageError("원본 리뷰 저장에 실패하여 배치 전체를 취소했습니다.") from exc
+        result = BatchOperationResult(
+            processed=len(reviews), succeeded=succeeded, skipped=skipped,
+            failed=failed, errors=errors,
         )
-        return BatchOperationResult(
-            processed=processed,
-            succeeded=succeeded,
-            skipped=skipped,
-            failed=failed,
-            rejected=0,
-            errors=errors,
+        self._logger.info(
+            "Raw storage: processed=%d succeeded=%d skipped=%d failed=%d",
+            result.processed, succeeded, skipped, failed,
         )
-
-    def _insert_raw(self, raw: RawReview, key: str, now: str) -> None:
-        self._conn.execute(
-            """
-            INSERT INTO raw_reviews (
-                dedupe_key, source_review_id, product_name, review_date,
-                rating, review_text, source_file, raw_payload, status,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'RAW', ?, ?)
-            """,
-            (
-                key,
-                _stored_scalar(raw.source_review_id),
-                _stored_scalar(raw.product_name),
-                _stored_scalar(raw.review_date),
-                _stored_scalar(raw.rating),
-                _stored_scalar(raw.review_text),
-                raw.source_file,
-                json.dumps(raw.raw_payload, ensure_ascii=False, default=str),
-                now,
-                now,
-            ),
-        )
-
-    def _upsert_raw(self, raw_id: int, raw: RawReview, key: str, now: str) -> None:
-        # Raw upsert: 연결된 Clean/Analysis를 지우고 다시 정제 대상(RAW)으로 만든다.
-        self._conn.execute(
-            "DELETE FROM clean_reviews WHERE dedupe_key = ?", (key,)
-        )
-        self._conn.execute(
-            """
-            UPDATE raw_reviews SET
-                source_review_id = ?, product_name = ?, review_date = ?,
-                rating = ?, review_text = ?, source_file = ?, raw_payload = ?,
-                status = 'RAW', updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                _stored_scalar(raw.source_review_id),
-                _stored_scalar(raw.product_name),
-                _stored_scalar(raw.review_date),
-                _stored_scalar(raw.rating),
-                _stored_scalar(raw.review_text),
-                raw.source_file,
-                json.dumps(raw.raw_payload, ensure_ascii=False, default=str),
-                now,
-                raw_id,
-            ),
-        )
+        return result
 
     def fetch_raw_reviews(
-        self,
-        *,
-        status: Optional[str] = None,
-    ) -> list[RawReview]:
-        query = "SELECT * FROM raw_reviews"
-        params: list[Any] = []
+        self, *, status: Optional[ProcessingStatus] = None,
+    ) -> List[RawReview]:
+        """Return original values and storage-assigned IDs in ascending ID order."""
+        if status is not None and not isinstance(status, ProcessingStatus):
+            raise ValidationError("status must be a ProcessingStatus value")
+        connection = self._require_connection()
+        sql = "SELECT * FROM raw_reviews"
+        parameters = ()
         if status is not None:
-            query += " WHERE status = ?"
-            params.append(_status_value(status))
-        query += " ORDER BY id ASC"
-
+            sql += " WHERE status = ?"
+            parameters = (status.value,)
         try:
-            rows = self._conn.execute(query, params).fetchall()
-        except sqlite3.Error as exc:
-            raise StorageError("Raw 리뷰를 조회할 수 없습니다.") from exc
-        return [_row_to_raw(row) for row in rows]
+            rows = connection.execute(sql + " ORDER BY id", parameters).fetchall()
+            reviews = []
+            for row in rows:
+                values = {name: json.loads(row[name]) for name in (
+                    "source_review_id", "product_name", "review_date", "rating",
+                    "review_text", "raw_payload",
+                )}
+                if not isinstance(values["raw_payload"], dict):
+                    raise ValueError("Invalid persisted raw_payload")
+                reviews.append(RawReview(id=row["id"], source_file=row["source_file"], **values))
+            return reviews
+        except (sqlite3.Error, ValueError, TypeError, RecursionError) as exc:
+            self._logger.error("Raw review read failed")
+            raise StorageError("원본 리뷰를 읽을 수 없습니다.") from exc
 
-    # -- clean -------------------------------------------------------------
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> SQLiteReviewRepository:
+        storage = config.get("storage")
+        if not isinstance(storage, Mapping) or storage.get("backend", "sqlite") != "sqlite":
+            raise StorageError("SQLite 저장소 설정이 필요합니다.")
+        path = storage.get("database_path")
+        if not isinstance(path, str) or not path.strip():
+            raise StorageError("storage.database_path가 필요합니다.")
+        return cls(path)
 
     def save_clean_reviews(
-        self,
-        reviews: Sequence[CleanReview],
-        policy: DuplicatePolicy,
+        self, reviews: Sequence[CleanReview], policy: DuplicatePolicy,
     ) -> BatchOperationResult:
-        processed = len(reviews)
+        """Persist cleaned records under their original Raw IDs, atomically."""
+        if not isinstance(policy, DuplicatePolicy):
+            raise ValidationError("policy must be a DuplicatePolicy value")
+        connection = self._require_connection()
         succeeded = skipped = failed = 0
-        errors: list[ItemError] = []
+        errors: List[ItemError] = []
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                for index, review in enumerate(reviews, start=1):
+                    connection.execute("SAVEPOINT clean_item")
+                    try:
+                        if not isinstance(review, CleanReview):
+                            raise ValidationError("Expected CleanReview")
+                        review.__post_init__()
+                        if review.source_review_id is not None and not isinstance(review.source_review_id, str):
+                            raise ValidationError("source_review_id must be a string")
+                        if connection.execute("SELECT id FROM raw_reviews WHERE id=?", (review.id,)).fetchone() is None:
+                            raise ValidationError("Matching Raw review is required")
+                        existing = connection.execute("SELECT * FROM clean_reviews WHERE id=?", (review.id,)).fetchone()
+                        if existing is not None and policy is DuplicatePolicy.SKIP:
+                            skipped += 1
+                        else:
+                            now = _utc_iso(datetime.now(timezone.utc))
+                            values = (review.source_review_id, review.product_name, _iso_date(review.review_date),
+                                      review.rating, review.review_text, _utc_iso(review.cleaned_at))
+                            if existing is None:
+                                connection.execute(
+                                    "INSERT INTO clean_reviews (source_review_id, product_name, review_date, "
+                                    "rating, review_text, cleaned_at, id, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", values + (review.id, now, now),
+                                )
+                            else:
+                                changed = any(existing[field] != value for field, value in zip(
+                                    _AI_RELEVANT_FIELDS, values[1:5]))
+                                connection.execute(
+                                    "UPDATE clean_reviews SET source_review_id=?, product_name=?, review_date=?, "
+                                    "rating=?, review_text=?, cleaned_at=?, updated_at=? WHERE id=?",
+                                    values + (now, review.id),
+                                )
+                                if changed:
+                                    connection.execute("DELETE FROM analysis_results WHERE review_id=?", (review.id,))
+                                    connection.execute("UPDATE clean_reviews SET status='CLEANED', error_message=NULL WHERE id=?", (review.id,))
+                            connection.execute(
+                                "UPDATE raw_reviews SET status=(SELECT status FROM clean_reviews WHERE id=?), "
+                                "updated_at=? WHERE id=?", (review.id, now, review.id),
+                            )
+                            succeeded += 1
+                    except (ValidationError, ValueError, TypeError, OverflowError, sqlite3.IntegrityError):
+                        connection.execute("ROLLBACK TO SAVEPOINT clean_item")
+                        failed += 1
+                        errors.append(ItemError(item_ref=str(index), code="CLEAN_STORAGE_INVALID_ITEM",
+                                                message="정제 행을 저장할 수 없습니다. 원본 ID와 데이터 형식을 확인하세요."))
+                        self._logger.warning("Clean row storage failed: row=%d", index)
+                    finally:
+                        connection.execute("RELEASE SAVEPOINT clean_item")
+        except sqlite3.Error as exc:
+            self._logger.error("Clean batch rolled back due to a storage failure")
+            raise StorageError("정제 리뷰 저장에 실패하여 배치 전체를 취소했습니다.") from exc
+        self._logger.info("Clean storage: processed=%d succeeded=%d skipped=%d failed=%d",
+                          len(reviews), succeeded, skipped, failed)
+        return BatchOperationResult(processed=len(reviews), succeeded=succeeded,
+                                    skipped=skipped, failed=failed, errors=errors)
+
+    def save_analysis(self, result: AnalysisResult) -> None:
+        result.__post_init__()
+        connection = self._require_connection()
         now = _utc_iso(datetime.now(timezone.utc))
-
-        for index, review in enumerate(reviews, start=1):
-            key = _dedupe_key(
-                review.source_review_id,
-                review.product_name,
-                review.review_date,
-                review.rating,
-                review.review_text,
-            )
-            savepoint = f"clean_{index}"
-            self._conn.execute(f"SAVEPOINT {savepoint}")
-            try:
-                existing = self._conn.execute(
-                    "SELECT * FROM clean_reviews WHERE dedupe_key = ?", (key,)
-                ).fetchone()
-
-                if existing is None:
-                    self._insert_clean(review, key, now)
-                    succeeded += 1
-                elif policy is DuplicatePolicy.SKIP:
-                    skipped += 1
-                else:
-                    self._upsert_clean(existing, review, now)
-                    succeeded += 1
-
-                self._conn.execute(f"RELEASE {savepoint}")
-            except sqlite3.IntegrityError as exc:
-                self._conn.execute(f"ROLLBACK TO {savepoint}")
-                self._conn.execute(f"RELEASE {savepoint}")
-                failed += 1
-                errors.append(
-                    ItemError(
-                        item_ref=review.source_review_id or f"row:{index}",
-                        code="CLEAN_SAVE_ERROR",
-                        message=str(exc),
-                        retryable=False,
-                    )
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "INSERT INTO analysis_results (review_id, sentiment, confidence, summary, keywords, "
+                    "analyzed_at, provider, model, prompt_version, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(review_id) DO UPDATE SET sentiment=excluded.sentiment, "
+                    "confidence=excluded.confidence, summary=excluded.summary, keywords=excluded.keywords, "
+                    "analyzed_at=excluded.analyzed_at, provider=excluded.provider, model=excluded.model, "
+                    "prompt_version=excluded.prompt_version, updated_at=excluded.updated_at",
+                    (result.review_id, result.sentiment.value, result.confidence, result.summary,
+                     _json_dump(list(dict.fromkeys(result.keywords))), _utc_iso(result.analyzed_at),
+                     result.provider, result.model, result.prompt_version, now, now),
                 )
-                logger.warning("Clean review 저장 실패: row=%s", index)
-            except sqlite3.Error as exc:
-                self._conn.rollback()
-                raise StorageError("Clean 리뷰 저장 중 저장소 오류가 발생했습니다.") from exc
+                connection.execute("UPDATE clean_reviews SET status='ANALYZED', error_message=NULL, updated_at=? WHERE id=?",
+                                   (now, result.review_id))
+                connection.execute("UPDATE raw_reviews SET status='ANALYZED', updated_at=? WHERE id=?", (now, result.review_id))
+        except sqlite3.Error as exc:
+            self._logger.error("Analysis storage failed: review_id=%d", result.review_id)
+            raise StorageError("분석 결과를 저장할 수 없습니다.") from exc
 
-        self._conn.commit()
-        logger.info(
-            "save_clean_reviews 완료: processed=%d succeeded=%d skipped=%d failed=%d",
-            processed,
-            succeeded,
-            skipped,
-            failed,
-        )
-        return BatchOperationResult(
-            processed=processed,
-            succeeded=succeeded,
-            skipped=skipped,
-            failed=failed,
-            rejected=0,
-            errors=errors,
-        )
-
-    def _insert_clean(self, review: CleanReview, key: str, now: str) -> None:
-        # 같은 dedupe_key의 raw 행과 연결하고 그 상태를 CLEANED로 올린다.
-        raw_row = self._conn.execute(
-            "SELECT id FROM raw_reviews WHERE dedupe_key = ?", (key,)
-        ).fetchone()
-        raw_id = raw_row["id"] if raw_row is not None else None
-
-        # 입력 객체의 id는 무시하고 DB가 새 id를 부여한다(A안).
-        self._conn.execute(
-            """
-            INSERT INTO clean_reviews (
-                raw_id, dedupe_key, source_review_id, product_name,
-                review_date, rating, review_text, status, cleaned_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CLEANED', ?, ?)
-            """,
-            (
-                raw_id,
-                key,
-                review.source_review_id,
-                review.product_name,
-                _iso_date(review.review_date),
-                review.rating,
-                review.review_text,
-                _utc_iso(review.cleaned_at),
-                now,
-            ),
-        )
-        if raw_id is not None:
-            self._conn.execute(
-                "UPDATE raw_reviews SET status = 'CLEANED', updated_at = ? WHERE id = ?",
-                (now, raw_id),
-            )
-
-    def _upsert_clean(
-        self,
-        existing: sqlite3.Row,
-        review: CleanReview,
-        now: str,
-    ) -> None:
-        review_id = existing["id"]
-        new_values = {
-            "product_name": review.product_name,
-            "review_date": _iso_date(review.review_date),
-            "rating": review.rating,
-            "review_text": review.review_text,
-        }
-        ai_input_changed = any(
-            existing[field] != new_values[field] for field in _AI_RELEVANT_FIELDS
-        )
-
-        self._conn.execute(
-            """
-            UPDATE clean_reviews SET
-                source_review_id = ?, product_name = ?, review_date = ?,
-                rating = ?, review_text = ?, cleaned_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                review.source_review_id,
-                new_values["product_name"],
-                new_values["review_date"],
-                new_values["rating"],
-                new_values["review_text"],
-                _utc_iso(review.cleaned_at),
-                now,
-                review_id,
-            ),
-        )
-
-        if ai_input_changed:
-            # AI 입력이 바뀌면 기존 분석 결과를 폐기하고 CLEANED로 되돌린다.
-            self._conn.execute(
-                "DELETE FROM analysis_results WHERE review_id = ?", (review_id,)
-            )
-            self._conn.execute(
-                "UPDATE clean_reviews SET status = 'CLEANED' WHERE id = ?",
-                (review_id,),
-            )
+    def mark_analysis_failed(self, review_id: int, error_message: str) -> None:
+        _validate_id(review_id)
+        connection = self._require_connection()
+        now = _utc_iso(datetime.now(timezone.utc))
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute("SELECT id FROM clean_reviews WHERE id=?", (review_id,)).fetchone() is None:
+                    raise StorageError("분석 대상 리뷰를 찾을 수 없습니다.")
+                # A failed latest attempt must be retryable and must not count as
+                # both analyzed and failed in downstream statistics.
+                connection.execute("DELETE FROM analysis_results WHERE review_id=?", (review_id,))
+                connection.execute("UPDATE clean_reviews SET status='ANALYSIS_FAILED', error_message=?, updated_at=? WHERE id=?",
+                                   ("AI analysis failed", now, review_id))
+                connection.execute("UPDATE raw_reviews SET status='ANALYSIS_FAILED', updated_at=? WHERE id=?", (now, review_id))
+        except sqlite3.Error as exc:
+            raise StorageError("분석 실패 상태를 저장할 수 없습니다.") from exc
+        # Provider errors can contain credentials or review text; do not persist
+        # or log the untrusted error_message argument.
+        self._logger.warning("Analysis failed: review_id=%d", review_id)
 
     def fetch_clean_reviews(
         self,
@@ -622,14 +540,15 @@ class SqliteReviewRepository:
             f"{where} ORDER BY c.id ASC"
         )
         if limit is not None:
+            _validate_id(limit, "limit")
             query += " LIMIT ?"
             params = [*params, limit]
 
         try:
-            rows = self._conn.execute(query, params).fetchall()
+            rows = self._require_connection().execute(query, params).fetchall()
         except sqlite3.Error as exc:
             raise StorageError("Clean 리뷰를 조회할 수 없습니다.") from exc
-        return [_row_to_clean(row) for row in rows]
+        return _decode_rows(rows, _row_to_clean)
 
     def fetch_unanalyzed_reviews(
         self,
@@ -644,84 +563,20 @@ class SqliteReviewRepository:
         )
         params: list[Any] = []
         if limit is not None:
+            _validate_id(limit, "limit")
             query += " LIMIT ?"
             params.append(limit)
 
         try:
-            rows = self._conn.execute(query, params).fetchall()
+            rows = self._require_connection().execute(query, params).fetchall()
         except sqlite3.Error as exc:
             raise StorageError("미분석 리뷰를 조회할 수 없습니다.") from exc
-        return [_row_to_clean(row) for row in rows]
-
-    # -- analysis ----------------------------------------------------------
-
-    def save_analysis(self, result: AnalysisResult) -> None:
-        try:
-            self._conn.execute(
-                """
-                INSERT INTO analysis_results (
-                    review_id, sentiment, confidence, summary, keywords,
-                    analyzed_at, provider, model, prompt_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(review_id) DO UPDATE SET
-                    sentiment = excluded.sentiment,
-                    confidence = excluded.confidence,
-                    summary = excluded.summary,
-                    keywords = excluded.keywords,
-                    analyzed_at = excluded.analyzed_at,
-                    provider = excluded.provider,
-                    model = excluded.model,
-                    prompt_version = excluded.prompt_version
-                """,
-                (
-                    result.review_id,
-                    result.sentiment.value,
-                    float(result.confidence),
-                    result.summary,
-                    json.dumps(result.keywords, ensure_ascii=False),
-                    _utc_iso(result.analyzed_at),
-                    result.provider,
-                    result.model,
-                    result.prompt_version,
-                ),
-            )
-            updated = self._conn.execute(
-                "UPDATE clean_reviews SET status = 'ANALYZED' WHERE id = ?",
-                (result.review_id,),
-            )
-            if updated.rowcount == 0:
-                # 대상 Clean 리뷰가 없으면 분석 결과를 남기지 않는다.
-                self._conn.rollback()
-                raise StorageError(
-                    f"분석 대상 리뷰를 찾을 수 없습니다: review_id={result.review_id}"
-                )
-            self._conn.commit()
-        except sqlite3.Error as exc:
-            self._conn.rollback()
-            raise StorageError("분석 결과를 저장할 수 없습니다.") from exc
-
-    def mark_analysis_failed(self, review_id: int, error_message: str) -> None:
-        try:
-            updated = self._conn.execute(
-                "UPDATE clean_reviews SET status = 'ANALYSIS_FAILED' WHERE id = ?",
-                (review_id,),
-            )
-            if updated.rowcount == 0:
-                self._conn.rollback()
-                raise StorageError(
-                    f"분석 대상 리뷰를 찾을 수 없습니다: review_id={review_id}"
-                )
-            self._conn.commit()
-        except sqlite3.Error as exc:
-            self._conn.rollback()
-            raise StorageError("분석 실패 상태를 저장할 수 없습니다.") from exc
-        logger.warning("Analysis failed: review_id=%s", review_id)
-
-    # -- read models -------------------------------------------------------
+        return _decode_rows(rows, _row_to_clean)
 
     def get_review(self, review_id: int) -> Optional[ReviewDetail]:
+        _validate_id(review_id)
         try:
-            row = self._conn.execute(
+            row = self._require_connection().execute(
                 """
                 SELECT c.*, a.review_id AS a_review_id, a.sentiment, a.confidence,
                        a.summary, a.keywords, a.analyzed_at, a.provider, a.model,
@@ -737,7 +592,7 @@ class SqliteReviewRepository:
 
         if row is None:
             return None
-        return _row_to_detail(row)
+        return _decode_rows([row], _row_to_detail)[0]
 
     def list_reviews(self, query: ReviewQuery) -> Page[ReviewDetail]:
         where, params = _build_where(query.filters)
@@ -748,7 +603,7 @@ class SqliteReviewRepository:
         )
 
         try:
-            total = self._conn.execute(
+            total = self._require_connection().execute(
                 f"SELECT COUNT(*) AS n {base}", params
             ).fetchone()["n"]
 
@@ -756,7 +611,7 @@ class SqliteReviewRepository:
             direction = "ASC" if query.order is SortOrder.ASC else "DESC"
             offset = (query.page - 1) * query.size
 
-            rows = self._conn.execute(
+            rows = self._require_connection().execute(
                 f"""
                 SELECT c.*, a.review_id AS a_review_id, a.sentiment, a.confidence,
                        a.summary, a.keywords, a.analyzed_at, a.provider, a.model,
@@ -770,7 +625,7 @@ class SqliteReviewRepository:
         except sqlite3.Error as exc:
             raise StorageError("리뷰 목록을 조회할 수 없습니다.") from exc
 
-        items = [_row_to_detail(row) for row in rows]
+        items = _decode_rows(rows, _row_to_detail)
         total_pages = (total + query.size - 1) // query.size if total else 0
         return Page(
             items=items,
@@ -786,7 +641,7 @@ class SqliteReviewRepository:
     ) -> ReviewStatistics:
         where, params = _build_where(filters)
         try:
-            rows = self._conn.execute(
+            rows = self._require_connection().execute(
                 f"""
                 SELECT c.rating, c.review_date, c.status,
                        a.sentiment, a.keywords
@@ -799,39 +654,24 @@ class SqliteReviewRepository:
         except sqlite3.Error as exc:
             raise StorageError("통계를 계산할 수 없습니다.") from exc
 
-        return _aggregate_statistics(rows)
+        try:
+            return _aggregate_statistics(rows)
+        except (ValueError, TypeError, ValidationError) as exc:
+            raise StorageError("저장된 통계 데이터를 해석할 수 없습니다.") from exc
 
 
-# ---------------------------------------------------------------------------
-# 행 → dataclass 매핑
-# ---------------------------------------------------------------------------
+    def close(self) -> None:
+        """Close the connection; repeated calls are safe."""
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
 
+    def __enter__(self) -> SQLiteReviewRepository:
+        self._require_connection()
+        return self
 
-def _stored_scalar(value: object | None) -> Optional[str]:
-    """Raw 스칼라를 TEXT로 저장하기 위한 표현. None은 그대로 둔다."""
-    if value is None:
-        return None
-    return str(value)
-
-
-def _status_value(status: object) -> str:
-    return status.value if isinstance(status, ProcessingStatus) else str(status)
-
-
-def _row_to_raw(row: sqlite3.Row) -> RawReview:
-    try:
-        payload = json.loads(row["raw_payload"])
-    except (TypeError, ValueError):
-        payload = {}
-    return RawReview(
-        source_review_id=row["source_review_id"],
-        product_name=row["product_name"],
-        review_date=row["review_date"],
-        rating=row["rating"],
-        review_text=row["review_text"],
-        source_file=row["source_file"],
-        raw_payload=payload if isinstance(payload, dict) else {},
-    )
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
 
 
 def _row_to_clean(row: sqlite3.Row) -> CleanReview:
@@ -849,10 +689,7 @@ def _row_to_clean(row: sqlite3.Row) -> CleanReview:
 def _row_to_analysis(row: sqlite3.Row) -> Optional[AnalysisResult]:
     if row["a_review_id"] is None:
         return None
-    try:
-        keywords = json.loads(row["keywords"])
-    except (TypeError, ValueError):
-        keywords = []
+    keywords = _load_keywords(row["keywords"])
     return AnalysisResult(
         review_id=row["a_review_id"],
         sentiment=Sentiment(row["sentiment"]),
@@ -938,13 +775,10 @@ def _aggregate_statistics(rows: Sequence[sqlite3.Row]) -> ReviewStatistics:
 
 
 def _load_keywords(raw: object) -> list[str]:
-    try:
-        keywords = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if not isinstance(keywords, list):
-        return []
-    return [str(keyword) for keyword in keywords if str(keyword).strip()]
+    keywords = json.loads(raw)
+    if not isinstance(keywords, list) or any(not isinstance(k, str) or not k.strip() for k in keywords):
+        raise ValueError("Invalid persisted keywords")
+    return list(dict.fromkeys(keywords))
 
 
 def _top_keywords(counter: Counter[str]) -> list[KeywordCount]:
@@ -954,4 +788,19 @@ def _top_keywords(counter: Counter[str]) -> list[KeywordCount]:
     ]
 
 
-__all__ = ["SqliteReviewRepository"]
+
+def _decode_rows(rows, decoder):
+    try:
+        return [decoder(row) for row in rows]
+    except (ValueError, TypeError, ValidationError) as exc:
+        raise StorageError("저장된 리뷰 데이터를 해석할 수 없습니다.") from exc
+
+
+def _validate_id(value: int, field: str = "review_id") -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValidationError(f"{field} must be a positive integer")
+
+
+# Both prior import spellings refer to the same implementation.
+SqliteReviewRepository = SQLiteReviewRepository
+__all__ = ["SQLiteReviewRepository", "SqliteReviewRepository"]

@@ -628,11 +628,13 @@ class OutputError(AppError): ...
 6. 생산자와 소비자의 contract test가 모두 통과한다.
 
 
-## 17. SQLite Raw 저장소 구현 현황
+## 17. SQLite 저장소 통합 구현 현황
 
-첫 구현은 `SQLiteReviewRepository(database_path)`의 스키마 초기화, 연결 종료,
-`save_raw_reviews()`, `fetch_raw_reviews()`를 제공한다. 아직 전체 `ReviewRepository`
-구현체는 아니며 Clean/Analysis 저장·조회, 통계, JSONL, CLI 연결은 후속 작업이다.
+`src/storage.py`는 공통 `ReviewRepository` Protocol을 정의하고,
+`src/sqlite_repository.py`의 `SQLiteReviewRepository(database_path)`가 Raw/Clean/Analysis
+저장·조회 및 통계를 구현한다. 기존 `src.storage.SQLiteReviewRepository`와
+`src.sqlite_repository.SqliteReviewRepository`는 동일한 구현을 가리키는 호환 이름이다.
+JSONL, 내보내기 및 실제 CLI 서비스 연결은 후속 작업이다.
 
 - 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
 - `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
@@ -655,3 +657,21 @@ class OutputError(AppError): ...
 - 배치는 명시적 트랜잭션과 행별 savepoint를 사용한다. 행 오류는 1부터 시작하는
   입력 행 번호를 `ItemError.item_ref`로 반환한다. 저장소 장애는 배치 전체를 롤백한다.
   로그와 오류 메시지에는 원문·원본 ID·원본 추가 컬럼을 포함하지 않는다.
+
+
+### 17.1 통합 시 ID·트랜잭션 규칙
+
+- PR #5의 스키마 v1과 Raw JSON 직렬화 형식을 유지한다. `CleanReview.id`는
+  반드시 저장소에서 조회한 `RawReview.id`이며, Clean 저장 시 재발급하지 않는다.
+  원본이 없는 ID는 행 단위 실패다. 중복 판단은 해당 원본 ID를 기준으로 한다.
+- Raw와 Clean 배치는 모두 바깥 `BEGIN IMMEDIATE`와 행별 savepoint를 사용한다.
+  행의 잘못된 값은 다른 성공 행을 막지 않고, DB 장애는 앞선 갱신과 분석 삭제까지 롤백한다.
+- Clean upsert에서 AI 입력 필드가 바뀐 경우에만 기존 분석을 무효화한다.
+- 분석 저장과 상태 변경은 하나의 트랜잭션이다. 최근 분석 실패를 기록하면 이전 결과를
+  제거해 미분석 재시도 대상으로 만들며, 재시도 성공 시 실패 상태를 해제한다.
+  실패 메시지에는 원문·인증 정보가 포함될 수 있어 고정된 실패 사유만 저장한다.
+- 통계의 `unanalyzed_reviews`는 실패를 제외한 미분석 수이며 `failed_reviews`는 별도 집계한다.
+  따라서 총수는 분석 완료·미분석·실패 수의 합이다.
+- 제품명 검색은 Unicode casefold 기반 부분 일치이며 `%`, `_`도 일반 문자로 검색한다.
+- 이전 별도 구현의 버전 없는 DB는 v1과 호환되지 않는다. 자동 덮어쓰기나 암묵적
+  마이그레이션을 하지 않고 초기화 오류를 반환한다. 기존 데이터는 보존되며 별도 변환이 필요하다.
