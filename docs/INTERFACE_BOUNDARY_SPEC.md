@@ -101,6 +101,7 @@ ProcessingStatus: RAW | REJECTED | CLEANED | ANALYZED | ANALYSIS_FAILED
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---:|---|
+| `id` | `int \| None` | 아니요 | 저장소 조회 시 채워지는 내부 ID. 신규 수집 시 생략 |
 | `source_review_id` | `object \| None` | 아니요 | 원본 데이터의 리뷰 ID |
 | `product_name` | `object \| None` | 아니요 | 정제 전 영화명 또는 제품명 |
 | `review_date` | `object \| None` | 아니요 | 정제 전 작성일 |
@@ -625,3 +626,62 @@ class OutputError(AppError): ...
 4. 공통 데이터 필드와 enum 값을 임의로 변경하지 않는다.
 5. 로그에 비밀값이나 전체 리뷰 원문을 남기지 않는다.
 6. 생산자와 소비자의 contract test가 모두 통과한다.
+
+
+## 17. SQLite 저장소 통합 구현 현황
+
+`src/storage.py`는 공통 `ReviewRepository` Protocol을 정의하고,
+`src/sqlite_repository.py`의 `SQLiteReviewRepository(database_path)`가 Raw/Clean/Analysis
+저장·조회 및 통계를 구현한다. 기존 `src.storage.SQLiteReviewRepository`와
+`src.sqlite_repository.SqliteReviewRepository`는 동일한 구현을 가리키는 호환 이름이다.
+JSONL, 내보내기 및 실제 CLI 서비스 연결은 후속 작업이다.
+
+- 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
+- `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
+- 스키마 버전은 `PRAGMA user_version = 1`이며 Raw/Clean/Analysis 테이블을 생성한다.
+  기존 미등록 스키마나 지원하지 않는 버전은 자동 변경하지 않고 `StorageError`를 반환한다.
+- `RawReview.id`는 하위 호환 선택 필드다. 저장 시 입력 ID는 무시하고 조회 시 내부 ID를 채운다.
+  후속 Cleaner는 이 ID를 `CleanReview.id`에 전달한다. 원본 ID와 내부 ID는 별개다.
+- Raw 필드와 원본 추가 컬럼은 JSON으로 보관한다. 잘못된 별점·날짜·빈 본문은
+  저장하고 정제 여부는 Cleaner가 판단한다. 날짜 객체는 ISO 문자열, timezone-aware
+  시각은 UTC `Z` 문자열, float NaN은 JSON null로 저장한다.
+  JSON으로 표현할 수 없는 객체·무한대·문자열이 아닌 dict 키는 행 단위 실패로 처리한다.
+- 중복 비교는 NFKC Unicode 정규화와 연속 공백 축약을 적용하되 대소문자는 유지한다.
+  숫자형 원본 ID `1`과 `1.0`은 같고 문자열 `"001"`은 별개다. 공백뿐인 ID와 NaN은
+  ID 없음으로 취급한다. ID가 없으면 제품·날짜·별점·본문을 JSON 배열로 묶어 SHA-256을
+  계산한다. ISO 날짜와 숫자형 별점을 정규화하므로 별점 `5`, `5.0`, `"5"`는 같다.
+  파일명과 추가 원본 컬럼은 중복 키에 포함하지 않는다. 저장하는 원문 자체는 정규화하지 않는다.
+- `skip`은 원본·타임스탬프·하위 데이터를 보존한다. `upsert`는 내부 ID와 생성 시각을
+  보존하고 수정 시각을 갱신하며, 연결된 Clean/Analysis를 삭제하고 Raw 상태를 복원한다.
+- 조회는 내부 ID 오름차순이며 상태 필터는 `ProcessingStatus` enum을 받는다.
+- 배치는 명시적 트랜잭션과 행별 savepoint를 사용한다. 행 오류는 1부터 시작하는
+  입력 행 번호를 `ItemError.item_ref`로 반환한다. 저장소 장애는 배치 전체를 롤백한다.
+  로그와 오류 메시지에는 원문·원본 ID·원본 추가 컬럼을 포함하지 않는다.
+
+
+### 17.1 통합 시 ID·트랜잭션 규칙
+
+- PR #5의 스키마 v1과 Raw JSON 직렬화 형식을 유지한다. `CleanReview.id`는
+  반드시 저장소에서 조회한 `RawReview.id`이며, Clean 저장 시 재발급하지 않는다.
+  원본이 없는 ID는 행 단위 실패다. 중복 판단은 해당 원본 ID를 기준으로 한다.
+- Raw와 Clean 배치는 모두 바깥 `BEGIN IMMEDIATE`와 행별 savepoint를 사용한다.
+  행의 잘못된 값은 다른 성공 행을 막지 않고, DB 장애는 앞선 갱신과 분석 삭제까지 롤백한다.
+- Clean upsert에서 AI 입력 필드가 바뀐 경우에만 기존 분석을 무효화한다.
+- 분석 저장과 상태 변경은 하나의 트랜잭션이다. 최근 분석 실패를 기록하면 이전 결과를
+  제거해 미분석 재시도 대상으로 만들며, 재시도 성공 시 실패 상태를 해제한다.
+  실패 메시지에는 원문·인증 정보가 포함될 수 있어 고정된 실패 사유만 저장한다.
+- 통계의 `unanalyzed_reviews`는 실패를 제외한 미분석 수이며 `failed_reviews`는 별도 집계한다.
+  따라서 총수는 분석 완료·미분석·실패 수의 합이다.
+- 제품명 검색은 Unicode casefold 기반 부분 일치이며 `%`, `_`도 일반 문자로 검색한다.
+- 이전 별도 구현의 버전 없는 DB는 v1과 호환되지 않는다. 자동 덮어쓰기나 암묵적
+  마이그레이션을 하지 않고 초기화 오류를 반환한다. 기존 데이터는 보존되며 별도 변환이 필요하다.
+
+
+### 17.2 수집·정제 연결
+
+수집기의 `load_reviews()`는 ID 없는 `RawReview`를 반환한다. 호출자는 먼저
+`save_raw_reviews()`로 저장하고 `fetch_raw_reviews(status=ProcessingStatus.RAW)`로
+다시 조회한 객체를 Cleaner에 전달한다. Cleaner는 해당 내부 ID를 그대로 유지한다.
+ID 없는 입력은 임의 번호를 붙이지 않고 배치의 실패 행으로 반환한다.
+Collector는 파일 없음·잘못된 형식 모두 `src.errors.InputFileError`를 사용하므로
+CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공통 logger를 사용한다.

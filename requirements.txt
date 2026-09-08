@@ -1,1 +1,6 @@
+pandas==3.0.5
+matplotlib==3.11.1
 
+# Excel input engines for .xlsx and .xls
+openpyxl>=3.1,<4
+xlrd>=2,<3
