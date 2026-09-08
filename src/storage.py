@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import sqlite3
+import unicodedata
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from src.config import get_logger
@@ -15,6 +21,7 @@ from src.models import (
     BatchOperationResult,
     CleanReview,
     DuplicatePolicy,
+    ItemError,
     Page,
     ProcessingStatus,
     RawReview,
@@ -141,6 +148,81 @@ _SCHEMA_COLUMNS = {
 }
 
 
+def _json_value(value: object) -> object:
+    """Convert file-input values to JSON without silently stringifying objects."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if not math.isfinite(value):
+            raise ValueError("Non-finite numeric value")
+        return value
+    if isinstance(value, datetime):
+        if value.utcoffset() is not None:
+            return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: _json_value(item) for key, item in value.items()}
+    raise ValueError("Unsupported raw value")
+
+
+def _json_dump(value: object) -> str:
+    return json.dumps(_json_value(value), ensure_ascii=False, allow_nan=False,
+                      sort_keys=True, separators=(",", ":"))
+
+
+def _normalized_text(value: object) -> str:
+    value = _json_value(value)
+    if value is None:
+        return ""
+    if isinstance(value, (list, dict)):
+        text = _json_dump(value)
+    else:
+        text = str(value)
+    return " ".join(unicodedata.normalize("NFKC", text).split())
+
+
+def _normalized_number(value: object) -> str:
+    text = _normalized_text(value)
+    try:
+        number = Decimal(text)
+        if number.is_finite():
+            return str(number.normalize()) if number != 0 else "0"
+    except InvalidOperation:
+        pass
+    return text
+
+
+def _raw_dedupe_key(review: RawReview) -> str:
+    source_id = _normalized_text(review.source_review_id)
+    # Excel often represents integer identifiers as floats. Preserve textual
+    # leading zeros ("001" remains different from "1").
+    if isinstance(review.source_review_id, (int, float)) and not isinstance(
+        review.source_review_id, bool
+    ) and source_id:
+        number = Decimal(source_id)
+        if number == number.to_integral_value():
+            source_id = str(int(number))
+    if source_id:
+        return "id:" + source_id
+    review_date = _normalized_text(review.review_date)
+    try:
+        review_date = date.fromisoformat(review_date).isoformat()
+    except ValueError:
+        pass  # Invalid dates remain raw input for the cleaner.
+    fields = [
+        _normalized_text(review.product_name), review_date,
+        _normalized_number(review.rating), _normalized_text(review.review_text),
+    ]
+    # JSON framing avoids collisions between adjacent fields containing delimiters.
+    return "sha256:" + hashlib.sha256(_json_dump(fields).encode("utf-8")).hexdigest()
+
+
 class SQLiteReviewRepository:
     """File-backed SQLite storage. This increment implements lifecycle and Raw I/O.
 
@@ -194,6 +276,117 @@ class SQLiteReviewRepository:
                 raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
             for table, columns in _SCHEMA_COLUMNS.items():
                 connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
+
+    def save_raw_reviews(
+        self,
+        reviews: Sequence[RawReview],
+        policy: DuplicatePolicy,
+    ) -> BatchOperationResult:
+        """Commit valid rows together; isolate row errors using savepoints.
+
+        Input IDs are ignored. UPSERT retains the stored ID and created_at,
+        resets status to RAW, and invalidates dependent Clean/Analysis rows.
+        """
+        if not isinstance(policy, DuplicatePolicy):
+            raise ValidationError("policy must be a DuplicatePolicy value")
+        connection = self._require_connection()
+        succeeded = skipped = failed = 0
+        errors: List[ItemError] = []
+        try:
+            with connection:
+                # BEGIN is essential: releasing a top-level savepoint alone would
+                # commit each row and prevent whole-batch rollback on a DB failure.
+                connection.execute("BEGIN IMMEDIATE")
+                for row_number, review in enumerate(reviews, start=1):
+                    connection.execute("SAVEPOINT raw_item")
+                    try:
+                        if not isinstance(review, RawReview):
+                            raise ValueError("Expected RawReview")
+                        if review.source_file is not None and not isinstance(review.source_file, str):
+                            raise ValueError("Invalid source_file")
+                        if not isinstance(review.raw_payload, dict):
+                            raise ValueError("Invalid raw_payload")
+                        values = tuple(_json_dump(value) for value in (
+                            review.source_review_id, review.product_name, review.review_date,
+                            review.rating, review.review_text,
+                        )) + (review.source_file, _json_dump(review.raw_payload))
+                        key = _raw_dedupe_key(review)
+                        existing = connection.execute(
+                            "SELECT id FROM raw_reviews WHERE dedupe_key = ?", (key,)
+                        ).fetchone()
+                        if existing is not None and policy is DuplicatePolicy.SKIP:
+                            skipped += 1
+                        else:
+                            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                            if existing is None:
+                                connection.execute(
+                                    "INSERT INTO raw_reviews (source_review_id, product_name, "
+                                    "review_date, rating, review_text, source_file, raw_payload, "
+                                    "dedupe_key, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                    values + (key, now, now),
+                                )
+                            else:
+                                # Foreign-key cascade also removes analysis_results.
+                                connection.execute("DELETE FROM clean_reviews WHERE id = ?", (existing["id"],))
+                                connection.execute(
+                                    "UPDATE raw_reviews SET source_review_id=?, product_name=?, "
+                                    "review_date=?, rating=?, review_text=?, source_file=?, raw_payload=?, "
+                                    "status='RAW', updated_at=? WHERE id=?",
+                                    values + (now, existing["id"]),
+                                )
+                            succeeded += 1
+                    except (ValueError, TypeError, OverflowError, RecursionError,
+                            sqlite3.IntegrityError):
+                        connection.execute("ROLLBACK TO SAVEPOINT raw_item")
+                        failed += 1
+                        errors.append(ItemError(
+                            item_ref=str(row_number), code="RAW_STORAGE_INVALID_ITEM",
+                            message="원본 행을 저장할 수 없습니다. 값의 형식과 저장 제약을 확인하세요.",
+                        ))
+                        self._logger.warning("Raw row storage failed: row=%d", row_number)
+                    finally:
+                        connection.execute("RELEASE SAVEPOINT raw_item")
+        except sqlite3.Error as exc:
+            self._logger.error("Raw batch rolled back due to a storage failure")
+            raise StorageError("원본 리뷰 저장에 실패하여 배치 전체를 취소했습니다.") from exc
+        result = BatchOperationResult(
+            processed=len(reviews), succeeded=succeeded, skipped=skipped,
+            failed=failed, errors=errors,
+        )
+        self._logger.info(
+            "Raw storage: processed=%d succeeded=%d skipped=%d failed=%d",
+            result.processed, succeeded, skipped, failed,
+        )
+        return result
+
+    def fetch_raw_reviews(
+        self, *, status: Optional[ProcessingStatus] = None,
+    ) -> List[RawReview]:
+        """Return original values and storage-assigned IDs in ascending ID order."""
+        if status is not None and not isinstance(status, ProcessingStatus):
+            raise ValidationError("status must be a ProcessingStatus value")
+        connection = self._require_connection()
+        sql = "SELECT * FROM raw_reviews"
+        parameters = ()
+        if status is not None:
+            sql += " WHERE status = ?"
+            parameters = (status.value,)
+        try:
+            rows = connection.execute(sql + " ORDER BY id", parameters).fetchall()
+            reviews = []
+            for row in rows:
+                values = {name: json.loads(row[name]) for name in (
+                    "source_review_id", "product_name", "review_date", "rating",
+                    "review_text", "raw_payload",
+                )}
+                if not isinstance(values["raw_payload"], dict):
+                    raise ValueError("Invalid persisted raw_payload")
+                reviews.append(RawReview(id=row["id"], source_file=row["source_file"], **values))
+            return reviews
+        except (sqlite3.Error, ValueError, TypeError, RecursionError) as exc:
+            self._logger.error("Raw review read failed")
+            raise StorageError("원본 리뷰를 읽을 수 없습니다.") from exc
 
     def close(self) -> None:
         """Close the connection; repeated calls are safe."""

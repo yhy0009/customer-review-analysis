@@ -100,6 +100,12 @@ class RawReview:
     review_text: RawScalar = None
     source_file: Optional[str] = None
     raw_payload: Dict[str, Any] = field(default_factory=dict)
+    # Assigned on repository reads; incoming IDs never override storage identity.
+    id: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.id is not None:
+            _require_positive_integer(self.id, "id")
 
 
 @dataclass(slots=True)

@@ -101,6 +101,7 @@ ProcessingStatus: RAW | REJECTED | CLEANED | ANALYZED | ANALYSIS_FAILED
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---:|---|
+| `id` | `int \| None` | 아니요 | 저장소 조회 시 채워지는 내부 ID. 신규 수집 시 생략 |
 | `source_review_id` | `object \| None` | 아니요 | 원본 데이터의 리뷰 ID |
 | `product_name` | `object \| None` | 아니요 | 정제 전 영화명 또는 제품명 |
 | `review_date` | `object \| None` | 아니요 | 정제 전 작성일 |
@@ -625,3 +626,32 @@ class OutputError(AppError): ...
 4. 공통 데이터 필드와 enum 값을 임의로 변경하지 않는다.
 5. 로그에 비밀값이나 전체 리뷰 원문을 남기지 않는다.
 6. 생산자와 소비자의 contract test가 모두 통과한다.
+
+
+## 17. SQLite Raw 저장소 구현 현황
+
+첫 구현은 `SQLiteReviewRepository(database_path)`의 스키마 초기화, 연결 종료,
+`save_raw_reviews()`, `fetch_raw_reviews()`를 제공한다. 아직 전체 `ReviewRepository`
+구현체는 아니며 Clean/Analysis 저장·조회, 통계, JSONL, CLI 연결은 후속 작업이다.
+
+- 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
+- `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
+- 스키마 버전은 `PRAGMA user_version = 1`이며 Raw/Clean/Analysis 테이블을 생성한다.
+  기존 미등록 스키마나 지원하지 않는 버전은 자동 변경하지 않고 `StorageError`를 반환한다.
+- `RawReview.id`는 하위 호환 선택 필드다. 저장 시 입력 ID는 무시하고 조회 시 내부 ID를 채운다.
+  후속 Cleaner는 이 ID를 `CleanReview.id`에 전달한다. 원본 ID와 내부 ID는 별개다.
+- Raw 필드와 원본 추가 컬럼은 JSON으로 보관한다. 잘못된 별점·날짜·빈 본문은
+  저장하고 정제 여부는 Cleaner가 판단한다. 날짜 객체는 ISO 문자열, timezone-aware
+  시각은 UTC `Z` 문자열, float NaN은 JSON null로 저장한다.
+  JSON으로 표현할 수 없는 객체·무한대·문자열이 아닌 dict 키는 행 단위 실패로 처리한다.
+- 중복 비교는 NFKC Unicode 정규화와 연속 공백 축약을 적용하되 대소문자는 유지한다.
+  숫자형 원본 ID `1`과 `1.0`은 같고 문자열 `"001"`은 별개다. 공백뿐인 ID와 NaN은
+  ID 없음으로 취급한다. ID가 없으면 제품·날짜·별점·본문을 JSON 배열로 묶어 SHA-256을
+  계산한다. ISO 날짜와 숫자형 별점을 정규화하므로 별점 `5`, `5.0`, `"5"`는 같다.
+  파일명과 추가 원본 컬럼은 중복 키에 포함하지 않는다. 저장하는 원문 자체는 정규화하지 않는다.
+- `skip`은 원본·타임스탬프·하위 데이터를 보존한다. `upsert`는 내부 ID와 생성 시각을
+  보존하고 수정 시각을 갱신하며, 연결된 Clean/Analysis를 삭제하고 Raw 상태를 복원한다.
+- 조회는 내부 ID 오름차순이며 상태 필터는 `ProcessingStatus` enum을 받는다.
+- 배치는 명시적 트랜잭션과 행별 savepoint를 사용한다. 행 오류는 1부터 시작하는
+  입력 행 번호를 `ItemError.item_ref`로 반환한다. 저장소 장애는 배치 전체를 롤백한다.
+  로그와 오류 메시지에는 원문·원본 ID·원본 추가 컬럼을 포함하지 않는다.
