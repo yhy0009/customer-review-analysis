@@ -241,7 +241,7 @@ def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
     return {
         "import": _adapt(services.import_reviews, build_import_request),
         "clean": _adapt(services.clean_reviews, build_clean_request),
-        "analyze": _adapt(services.analyze_reviews, build_analyze_request),
+        "analyze": build_analyze_handler(services.analyze_reviews),
         "extract": _adapt(services.extract_insights, build_extract_request),
         "list": _adapt(services.list_reviews, build_list_request),
         "show": _adapt(
@@ -255,7 +255,21 @@ def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
     }
 
 
+def build_analyze_handler(
+    service_method: Callable[[AnalyzeRequest], BatchOperationResult],
+) -> CommandHandler:
+    """Expose analyze independently while other application services are pending."""
+    def execute(request: AnalyzeRequest) -> BatchOperationResult:
+        result = service_method(request)
+        print(f"processed={result.processed} succeeded={result.succeeded} "
+              f"skipped={result.skipped} failed={result.failed}")
+        return result
+
+    return _adapt(execute, build_analyze_request)
+
+
 __all__ = [
+    "build_analyze_handler",
     "build_analyze_request",
     "build_clean_request",
     "build_dashboard_request",

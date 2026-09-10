@@ -425,6 +425,8 @@ class AnalysisOptions:
     max_retries: int
     api_key: Optional[str] = field(default=None, repr=False)
     prompt_version: Optional[str] = None
+    base_url: Optional[str] = None
+    reasoning_effort: Optional[str] = "minimal"
 
     def __post_init__(self) -> None:
         if not isinstance(self.provider, str) or not self.provider.strip():
@@ -433,6 +435,12 @@ class AnalysisOptions:
             raise ValidationError("model must be non-empty")
         _require_positive_integer(self.timeout_seconds, "timeout_seconds")
         _require_non_negative_integer(self.max_retries, "max_retries")
+        if self.base_url is not None and (
+            not isinstance(self.base_url, str) or not self.base_url.strip()
+        ):
+            raise ValidationError("base_url must be a non-empty string or None")
+        if self.reasoning_effort not in (None, "none", "minimal", "low", "medium", "high", "xhigh", "max"):
+            raise ValidationError("unsupported reasoning_effort")
 
 
 @dataclass(frozen=True, slots=True)

@@ -35,8 +35,10 @@ DEFAULT_CONFIG = {
     },
     "ai": {
         "provider": "openai",
-        "model": "gpt-5.6-luna",
+        "model": "gpt-5-mini",
         "api_key": None,
+        "base_url": None,
+        "reasoning_effort": "minimal",
         "timeout_seconds": 30,
         "max_retries": 3,
     },
@@ -60,6 +62,8 @@ ENV_OVERRIDES = {
     "AI_PROVIDER": (("ai", "provider"), str),
     "AI_MODEL": (("ai", "model"), str),
     "AI_API_KEY": (("ai", "api_key"), str),
+    "AI_BASE_URL": (("ai", "base_url"), str),
+    "AI_REASONING_EFFORT": (("ai", "reasoning_effort"), str),
     "CRA_LOG_LEVEL": (("logging", "level"), str),
     "CRA_LOG_FILE": (("logging", "file"), str),
 }
@@ -203,6 +207,10 @@ def validate_config(config: Mapping[str, Any]) -> None:
     if api_key is not None and not isinstance(api_key, str):
         raise ConfigError("설정 항목 'ai.api_key'는 문자열 또는 null이어야 합니다.")
     _require_positive_integer(ai.get("timeout_seconds"), "ai.timeout_seconds")
+    if ai.get("base_url") is not None:
+        _require_non_empty_string(ai["base_url"], "ai.base_url")
+    if ai.get("reasoning_effort") not in (None, "none", "minimal", "low", "medium", "high", "xhigh", "max"):
+        raise ConfigError("설정 항목 'ai.reasoning_effort'가 올바르지 않습니다.")
     _require_non_negative_integer(ai.get("max_retries"), "ai.max_retries")
 
     if not isinstance(visualization.get("font_family"), str):
