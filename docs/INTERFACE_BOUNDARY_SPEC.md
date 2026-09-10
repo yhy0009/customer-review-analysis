@@ -686,16 +686,37 @@ ID 없는 입력은 임의 번호를 붙이지 않고 배치의 실패 행으로
 Collector는 파일 없음·잘못된 형식 모두 `src.errors.InputFileError`를 사용하므로
 CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공통 logger를 사용한다.
 
-## 18. 단건 AI 분석 구현 현황
+## 18. AI 분석 구현 현황
 
 `src/analyzer.py`의 `analyze_review(review, options)`는 7.2절의 단건 계약을 구현한다.
-`src/ai_provider.py`는 OpenAI 호출을 분리하며, 기본 모델은 `gpt-5.6-luna`다.
-공통 DTO와 Protocol의 시그니처는 변경하지 않는다.
+`src/ai_provider.py`는 OpenAI 호출을 분리하며, 기본 모델은 `gpt-5-mini`다.
+`AnalysisOptions`에 선택 필드 `base_url: str | None = None`과
+`reasoning_effort: str | None = "minimal"`을 추가한다.
+기존 호출의 호환성과 Protocol 메서드 시그니처는 유지한다. 설정 모듈은
+`AI_BASE_URL`을 `ai.base_url`에 반영한다. `openai`는 공식 주소를 사용하고,
+`openai-compatible`은 명시한 서버 주소를 사용하며 자동으로 다른 서버를 호출하지 않는다.
+공식 어댑터는 JSON Schema와 추론 옵션을 전송한다. COPA 호환 어댑터는 고급 옵션
+거절에 대응해 model/messages만 보내고 스키마를 시스템 프롬프트에 포함한다.
+두 경로 모두 동일한 로컬 응답 검증을 적용한다.
 
 단건 요청은 재시도·DB 저장 없이 `AnalysisResult`를 반환한다. API 오류·불완전 응답·
 응답 검증 실패는 `AIProviderError`로 변환한다. API 응답의 모델 이름과 실제 사용한
 프롬프트 버전을 기록하고, 오류 메시지와 모듈 로그에 원문·키를 포함하지 않는다.
-`max_retries`를 사용하는 배치 조율, 기존 결과 건너뛰기, 상태 저장, CLI 서비스 연결은
-후속 작업이다. 따라서 전체 `ReviewAnalyzer` Protocol 구현 완료를 의미하지 않는다.
+
+`BatchReviewAnalyzer(repository, provider=None)`는 7.2절의 단건·배치 메서드를 모두
+제공한다. `force=False`이면 기존 결과를 건너뛰고, 최초 호출 후 최대 `max_retries`회
+재시도한다. 대기 간격은 1초에서 시작하여 두 배씩 증가하고 16초로 제한한다.
+인증·잘못된 요청·할당량 소진·거부·출력 중단처럼 같은 요청으로 회복할 수 없는 오류는
+재시도하지 않는다. 실패 상태와 고정된 오류 메시지를 저장한 뒤 다른 리뷰를 계속 처리한다.
+성공 건은 즉시 저장하고, 저장소·설정 오류는 배치를 중단하여 기존 성공 커밋을 보존한다.
+
+한 배치의 반복 ID는 추가 호출 없이 skipped로 집계한다. 저장된 정제 리뷰가 없거나
+제품명·별점·본문이 현재 저장소 값과 다르면 상태를 변경하지 않고 행 오류로 집계한다.
+`AnalysisBatchResult.results`는 이번 배치에서 저장까지 성공한 결과만 포함한다.
+
+`AnalysisService`는 전체·미분석·단건 대상을 조회하여 배치 분석기로 전달한다.
+`build_analyze_handler()`는 분석 서비스만 CLI에 주입할 수 있으며 처리 건수 요약과
+공통 종료 코드를 제공한다. 전체 `ApplicationServices` 구성과 `main.py`의 기본
+실행 연결, 실제 SQLite 통합 검증은 후속 작업이다. 현재 배치 테스트는 fake 저장소를 사용한다.
 
 실행 예시, 테스트 방법, llama-server 확장 경계는 [AI 분석 안내](AI_ANALYSIS.md)를 따른다.
