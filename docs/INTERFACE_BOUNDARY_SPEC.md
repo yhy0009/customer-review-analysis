@@ -685,3 +685,17 @@ JSONL, 내보내기 및 실제 CLI 서비스 연결은 후속 작업이다.
 ID 없는 입력은 임의 번호를 붙이지 않고 배치의 실패 행으로 반환한다.
 Collector는 파일 없음·잘못된 형식 모두 `src.errors.InputFileError`를 사용하므로
 CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공통 logger를 사용한다.
+
+## 18. 단건 AI 분석 구현 현황
+
+`src/analyzer.py`의 `analyze_review(review, options)`는 7.2절의 단건 계약을 구현한다.
+`src/ai_provider.py`는 OpenAI 호출을 분리하며, 기본 모델은 `gpt-5.6-luna`다.
+공통 DTO와 Protocol의 시그니처는 변경하지 않는다.
+
+단건 요청은 재시도·DB 저장 없이 `AnalysisResult`를 반환한다. API 오류·불완전 응답·
+응답 검증 실패는 `AIProviderError`로 변환한다. API 응답의 모델 이름과 실제 사용한
+프롬프트 버전을 기록하고, 오류 메시지와 모듈 로그에 원문·키를 포함하지 않는다.
+`max_retries`를 사용하는 배치 조율, 기존 결과 건너뛰기, 상태 저장, CLI 서비스 연결은
+후속 작업이다. 따라서 전체 `ReviewAnalyzer` Protocol 구현 완료를 의미하지 않는다.
+
+실행 예시, 테스트 방법, llama-server 확장 경계는 [AI 분석 안내](AI_ANALYSIS.md)를 따른다.
