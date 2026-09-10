@@ -14,7 +14,7 @@
   },
   "ai": {
     "provider": "openai",
-    "model": "",
+    "model": "gpt-5.6-luna",
     "api_key": null,
     "timeout_seconds": 30,
     "max_retries": 3

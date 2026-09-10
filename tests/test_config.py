@@ -21,6 +21,7 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config["storage"]["backend"], "sqlite")
         self.assertEqual(config["cleaning"]["duplicate_policy"], "skip")
         self.assertEqual(config["logging"]["level"], "INFO")
+        self.assertEqual(config["ai"]["model"], "gpt-5.6-luna")
 
     def test_nested_values_override_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +54,7 @@ class ConfigLoaderTests(unittest.TestCase):
                     "CRA_MIN_REVIEW_LENGTH": "7",
                     "CRA_LOG_LEVEL": "DEBUG",
                     "AI_API_KEY": "test-key",
+                    "AI_MODEL": "custom-model",
                 },
             )
 
@@ -60,6 +62,7 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config["cleaning"]["min_review_length"], 7)
         self.assertEqual(config["logging"]["level"], "DEBUG")
         self.assertEqual(config["ai"]["api_key"], "test-key")
+        self.assertEqual(config["ai"]["model"], "custom-model")
 
     def test_unknown_extension_keys_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

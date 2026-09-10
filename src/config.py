@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
     },
     "ai": {
         "provider": "openai",
-        "model": "",
+        "model": "gpt-5.6-luna",
         "api_key": None,
         "timeout_seconds": 30,
         "max_retries": 3,
