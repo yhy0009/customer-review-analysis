@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import httpx
 from openai import OpenAI
 
-from src.ai_provider import AnalysisProvider, ProviderResponse
+from src.ai_provider import AnalysisProvider, NonRetryableAIError, ProviderResponse
 from src.analyzer import PROMPT_VERSION, SingleReviewAnalyzer, analyze_review
 from src.errors import AIProviderError, ConfigError
 from src.models import AnalysisOptions, CleanReview, Sentiment
@@ -27,6 +27,7 @@ class SingleReviewTests(unittest.TestCase):
         self.options = AnalysisOptions(
             provider="openai", model="gpt-5.6-luna", timeout_seconds=7,
             max_retries=3, api_key="test-secret-key",
+            reasoning_effort="none",
         )
         self.payload = {
             "sentiment": "positive", "confidence": 0.9,
@@ -170,6 +171,54 @@ class SingleReviewTests(unittest.TestCase):
         self.assertFalse(body["response_format"]["json_schema"]["schema"]["additionalProperties"])
         self.assertEqual(result.model, "gpt-5.6-luna-test-snapshot")
 
+    def test_routing_key_is_sent_only_to_explicit_compatible_endpoint(self):
+        self.options = replace(self.options, provider="openai-compatible",
+                               base_url="https://copa.codyssey.kr/v1")
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200, json=self.completion())
+
+        result = self.run_sdk(handler)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(str(requests[0].url), "https://copa.codyssey.kr/v1/chat/completions")
+        self.assertEqual(requests[0].headers["authorization"], "Bearer test-secret-key")
+        body = json.loads(requests[0].content)
+        self.assertEqual(set(body), {"model", "messages"})
+        self.assertIn('"additionalProperties": false', body["messages"][0]["content"])
+        self.assertEqual(result.provider, "openai-compatible")
+
+    def test_native_mini_reasoning_can_be_configured_or_omitted(self):
+        for effort in ("minimal", None):
+            with self.subTest(effort=effort):
+                self.options = replace(self.options, model="gpt-5-mini", reasoning_effort=effort)
+                bodies = []
+
+                def handler(request):
+                    bodies.append(json.loads(request.content))
+                    return httpx.Response(200, json=self.completion(model="gpt-5-mini"))
+
+                self.run_sdk(handler)
+                self.assertEqual(bodies[0]["model"], "gpt-5-mini")
+                if effort is None:
+                    self.assertNotIn("reasoning_effort", bodies[0])
+                else:
+                    self.assertEqual(bodies[0]["reasoning_effort"], "minimal")
+
+    def test_incomplete_or_unsafe_routing_config_fails_before_network(self):
+        options = [replace(self.options, base_url="https://copa.codyssey.kr/v1")]
+        options += [replace(self.options, provider="openai-compatible", base_url=url) for url in (
+            None, "http://example.com/v1", "https://user:secret@example.com/v1",
+            "https://example.com/v1?key=secret", "https://example.com/v1#secret", "file:///tmp/test",
+        )]
+        for option in options:
+            with self.subTest(base_url=option.base_url):
+                with patch("src.ai_provider.OpenAI") as factory:
+                    with self.assertRaises(ConfigError):
+                        analyze_review(self.review, option)
+                    factory.assert_not_called()
+
     def test_http_errors_are_sanitized_and_do_not_retry(self):
         for status in (401, 429, 500):
             with self.subTest(status=status):
@@ -196,6 +245,20 @@ class SingleReviewTests(unittest.TestCase):
         with self.assertRaises(AIProviderError):
             self.run_sdk(handler)
         self.assertEqual(len(calls), 1)
+
+    def test_http_status_classification_for_batch_retry(self):
+        for status, code, terminal in [
+            (400, None, True), (401, None, True), (403, None, True),
+            (404, None, True), (422, None, True), (408, None, False),
+            (409, None, False), (429, None, False), (500, None, False),
+            (429, "insufficient_quota", True),
+        ]:
+            with self.subTest(status=status, code=code):
+                with self.assertRaises(AIProviderError) as caught:
+                    self.run_sdk(lambda request: httpx.Response(status, json={
+                        "error": {"message": "private-secret", "code": code},
+                    }))
+                self.assertEqual(isinstance(caught.exception, NonRetryableAIError), terminal)
 
     def test_invalid_http_json_is_sanitized_provider_error(self):
         with self.assertRaises(AIProviderError) as caught:

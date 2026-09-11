@@ -179,9 +179,10 @@ cp config/config_example.json config/config.json
 
 ## 💻 8. CLI 사용법 (Usage Guide)
 
-> 구현 현황: GPT-5.6-luna 단건 분석은 Python 함수로 사용할 수 있습니다.
-> [단건 AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.
-> 아래 CLI 예시는 목표 사용법이며, 실제 기능 서비스 연결은 아직 후속 작업입니다.
+> 구현 현황: GPT-5-mini 단건 분석과 저장소 주입 방식의 배치 분석·재시도를 제공합니다.
+> [AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.
+> 아래 CLI 예시는 목표 사용법입니다. 분석 전용 CLI 어댑터는 구현됐으며,
+> `main.py`의 기본 저장소·서비스 생성 연결은 아직 후속 작업입니다.
 
 ```bash
 # 1. 리뷰 데이터 가져오기 (Raw 적재)

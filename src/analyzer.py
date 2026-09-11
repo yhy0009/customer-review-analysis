@@ -1,15 +1,20 @@
-"""Single-review sentiment analysis using the shared input/output contracts."""
+"""Single and batch sentiment analysis using shared input/output contracts."""
 
 from __future__ import annotations
 
 import json
 import math
+import time
 from datetime import datetime, timezone
+from typing import Callable, Sequence
 
-from src.ai_provider import AnalysisProvider, OpenAIProvider
+from src.ai_provider import AnalysisProvider, NonRetryableAIError, provider_for
 from src.config import get_logger
-from src.errors import AIProviderError, ConfigError
-from src.models import AnalysisOptions, AnalysisResult, CleanReview, Sentiment
+from src.errors import AIProviderError, ConfigError, ValidationError
+from src.models import (
+    AnalysisBatchResult, AnalysisOptions, AnalysisResult, CleanReview, ItemError, Sentiment,
+)
+from src.storage import ReviewRepository
 
 
 logger = get_logger("analyzer")
@@ -76,10 +81,10 @@ def _parse_response(content: str) -> dict:
 
 
 class SingleReviewAnalyzer:
-    """Single-review part of ReviewAnalyzer; batch orchestration is pending."""
+    """Analyze one review without storage or retry side effects."""
 
     def __init__(self, provider: AnalysisProvider | None = None) -> None:
-        self.provider = provider if provider is not None else OpenAIProvider()
+        self.provider = provider
 
     def analyze_review(self, review: CleanReview, options: AnalysisOptions) -> AnalysisResult:
         if options.prompt_version not in (None, PROMPT_VERSION):
@@ -93,7 +98,8 @@ class SingleReviewAnalyzer:
             }, ensure_ascii=False)},
         ]
         try:
-            response = self.provider.complete(messages, ANALYSIS_SCHEMA, options)
+            provider = self.provider if self.provider is not None else provider_for(options)
+            response = provider.complete(messages, ANALYSIS_SCHEMA, options)
             payload = _parse_response(response.content)
         except AIProviderError:
             logger.warning("단건 분석 실패: review_id=%d", review.id)
@@ -116,3 +122,98 @@ class SingleReviewAnalyzer:
 def analyze_review(review: CleanReview, options: AnalysisOptions) -> AnalysisResult:
     """Analyze once; return the result without writing to storage or retrying."""
     return SingleReviewAnalyzer().analyze_review(review, options)
+
+
+class BatchReviewAnalyzer(SingleReviewAnalyzer):
+    """ReviewAnalyzer implementation with injected persistence and retry waiting.
+
+    Each saved result is committed by the repository. Storage/configuration errors
+    abort the batch and preserve earlier commits; only AI failures are retried.
+    """
+
+    def __init__(
+        self,
+        repository: ReviewRepository,
+        provider: AnalysisProvider | None = None,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        super().__init__(provider)
+        self.repository = repository
+        self._sleep = sleep
+
+    def analyze_reviews(
+        self,
+        reviews: Sequence[CleanReview],
+        options: AnalysisOptions,
+        *,
+        force: bool = False,
+    ) -> AnalysisBatchResult:
+        if not isinstance(force, bool):
+            raise ValidationError("force must be a boolean")
+        # Validate the full batch before persisting anything.
+        reviews = list(reviews)
+        if any(not isinstance(review, CleanReview) for review in reviews):
+            raise ValidationError("분석 입력은 CleanReview 목록이어야 합니다.")
+        if options.prompt_version not in (None, PROMPT_VERSION):
+            raise ConfigError("지원하지 않는 분석 프롬프트 버전입니다.")
+
+        results: list[AnalysisResult] = []
+        errors: list[ItemError] = []
+        seen: set[int] = set()
+        skipped = 0
+        for review in reviews:
+            # Even force must not pay twice for the same ID within one batch.
+            if review.id in seen:
+                skipped += 1
+                continue
+            seen.add(review.id)
+            detail = self.repository.get_review(review.id)
+            if detail is None:
+                errors.append(ItemError(
+                    item_ref=str(review.id), code="REVIEW_NOT_FOUND",
+                    message="저장된 정제 리뷰를 찾을 수 없습니다.",
+                ))
+                continue
+            if any(getattr(detail.review, field) != getattr(review, field)
+                   for field in ("product_name", "rating", "review_text")):
+                errors.append(ItemError(
+                    item_ref=str(review.id), code="STALE_REVIEW",
+                    message="저장소에서 최신 리뷰를 다시 조회해야 합니다.",
+                ))
+                continue
+            if detail.analysis is not None and not force:
+                skipped += 1
+                continue
+
+            for attempt in range(options.max_retries + 1):
+                try:
+                    result = self.analyze_review(review, options)
+                except AIProviderError as exc:
+                    retryable = not isinstance(exc, NonRetryableAIError)
+                    if retryable and attempt < options.max_retries:
+                        delay = float(2 ** min(attempt, 4))
+                        logger.info("분석 재시도: review_id=%d retry=%d delay=%s",
+                                    review.id, attempt + 1, delay)
+                        self._sleep(delay)
+                        continue
+                    # Never store exception text, including custom provider errors.
+                    message = "AI 분석에 실패했습니다."
+                    self.repository.mark_analysis_failed(review.id, message)
+                    errors.append(ItemError(
+                        item_ref=str(review.id), code="ANALYSIS_FAILED",
+                        message=message, retryable=retryable,
+                    ))
+                    break
+                # Keep storage failures outside the AI retry boundary.
+                self.repository.save_analysis(result)
+                results.append(result)
+                break
+
+        batch = AnalysisBatchResult(
+            processed=len(reviews), succeeded=len(results), skipped=skipped,
+            failed=len(errors), errors=errors, results=results,
+        )
+        logger.info("배치 분석 완료: processed=%d succeeded=%d skipped=%d failed=%d",
+                    batch.processed, batch.succeeded, batch.skipped, batch.failed)
+        return batch

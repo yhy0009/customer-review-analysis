@@ -21,7 +21,8 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config["storage"]["backend"], "sqlite")
         self.assertEqual(config["cleaning"]["duplicate_policy"], "skip")
         self.assertEqual(config["logging"]["level"], "INFO")
-        self.assertEqual(config["ai"]["model"], "gpt-5.6-luna")
+        self.assertEqual(config["ai"]["model"], "gpt-5-mini")
+        self.assertEqual(config["ai"]["reasoning_effort"], "minimal")
 
     def test_nested_values_override_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -55,6 +56,7 @@ class ConfigLoaderTests(unittest.TestCase):
                     "CRA_LOG_LEVEL": "DEBUG",
                     "AI_API_KEY": "test-key",
                     "AI_MODEL": "custom-model",
+                    "AI_BASE_URL": "https://copa.codyssey.kr/v1",
                 },
             )
 
@@ -63,6 +65,7 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(config["logging"]["level"], "DEBUG")
         self.assertEqual(config["ai"]["api_key"], "test-key")
         self.assertEqual(config["ai"]["model"], "custom-model")
+        self.assertEqual(config["ai"]["base_url"], "https://copa.codyssey.kr/v1")
 
     def test_unknown_extension_keys_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
