@@ -231,7 +231,7 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 
 `src/handlers.py`는 의존성이 주입된 핸들러를 생성한다. `src.cli.main()`에 매핑을
 명시하면 해당 매핑을 사용하고, 생략하면 `src.runtime.build_default_handlers()`로
-현재 연결된 `list/show/stats`의 기본 매핑을 구성한다. 빈 매핑 `{}`도 명시적 주입으로 취급한다.
+현재 연결된 `list/show/stats/export`의 기본 매핑을 구성한다. 빈 매핑 `{}`도 명시적 주입으로 취급한다.
 
 ```python
 def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
@@ -244,7 +244,7 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
         "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
-        "export": _adapt(services.export_reviews, build_export_request),
+        "export": build_export_handler(services.export_reviews),
     }
 ```
 
@@ -263,7 +263,8 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 | `export_reviews` | `ExportRequest` | `ExportResult` |
 
 `QueryService`는 목록·상세·통계를 구현한다. 기본 조회 핸들러는 인자 검증 후 설정에서
-SQLite를 열고 서비스 실행 뒤 연결을 닫는다. 나머지 기본 명령은 미연결 오류를 유지한다.
+SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 기본 `export` 명령에 연결됐다.
+나머지 기본 명령은 미연결 오류를 유지한다.
 전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
 
 ### 5.3 CLI 명령 인자
@@ -636,7 +637,7 @@ class OutputError(AppError): ...
 `src/sqlite_repository.py`의 `SQLiteReviewRepository(database_path)`가 Raw/Clean/Analysis
 저장·조회 및 통계를 구현한다. 기존 `src.storage.SQLiteReviewRepository`와
 `src.sqlite_repository.SqliteReviewRepository`는 동일한 구현을 가리키는 호환 이름이다.
-JSONL과 내보내기는 후속 작업이다. 기본 CLI의 list/show/stats는 조회 서비스에 연결돼 있다.
+JSONL 저장소는 후속 작업이다. 기본 CLI의 list/show/stats와 export는 각각 조회·내보내기 서비스에 연결돼 있다.
 
 - 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
 - `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
@@ -724,7 +725,7 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 `AnalysisService`는 전체·미분석·단건 대상을 조회하여 배치 분석기로 전달한다.
 `build_analyze_handler()`는 분석 서비스만 CLI에 주입할 수 있으며 처리 건수 요약과
-공통 종료 코드를 제공한다. `main.py`의 기본 list/show/stats는 연결됐으며,
+공통 종료 코드를 제공한다. `main.py`의 기본 list/show/stats/export는 연결됐으며,
 분석 기본 연결과 전체 `ApplicationServices` 구성은 후속 작업이다. fake 저장소 배치 테스트와 함께 실제 SQLite에 분석 서비스를
 연결하여 저장·실패·재시도·강제 재분석·저장소 오류 중단과 통계를 검증한다.
 
@@ -746,3 +747,25 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 - 조회를 실행하기 위해 AI SDK 또는 API 키를 준비할 필요는 없다.
 
 실행 예시와 명령별 종료 코드는 [조회 CLI 안내](QUERY_CLI.md)를 참고한다.
+
+
+## 20. 내보내기 구현 현황
+
+`src/export_service.py`의 `ExportService`는 공통 `list_reviews()`를 재사용해 필터에
+맞는 전체 `ReviewDetail`을 ID 오름차순으로 읽는다. `FileReviewExporter`는 기존
+`ReviewExporter` Protocol을 구현해 CSV·JSONL·Excel 파일과 `ExportResult`를 반환한다.
+
+- 컬럼 순서: `id`, `source_review_id`, `product_name`, `review_date`, `rating`,
+  `review_text`, `cleaned_at`, `sentiment`, `confidence`, `summary`, `keywords`,
+  `analyzed_at`, `provider`, `model`, `prompt_version`.
+- 키워드는 JSONL에서 배열, CSV·Excel에서 JSON 배열 문자열이다. 분석이 없으면
+  분석 필드는 모두 결측값이며 JSONL에서는 `null`로 표현한다.
+- CSV는 수식처럼 해석될 수 있는 문자열에 작은따옴표를 붙이고 Excel은 문자열 셀로
+  저장한다. 파일 생성 실패나 Excel 셀·행 제한 초과 시 불완전한 결과로 기존 파일을 바꾸지 않는다.
+- `SQLiteReviewRepository.read_snapshot()`은 CLI 내보내기에 사용되는 추가 컨텍스트다.
+  기존 공통 Repository Protocol은 유지하며 다중 페이지 조회를 하나의 읽기 트랜잭션으로 묶는다.
+- 필터 조회가 0건이어도 파일을 생성한다. CSV/Excel은 헤더를 포함하고 JSONL은 빈 파일이다.
+- 내보내기는 임시 파일 작성 후 최종 경로로 게시한다. 기본은 덮어쓰기 금지이며
+  `--force`가 있으면 성공한 파일만 교체한다. 사용 중인 DB 및 관련 journal 파일은 보호한다.
+
+상세 포맷·파일명·종료 코드와 실행 예시는 [내보내기 안내](EXPORT.md)를 따른다.

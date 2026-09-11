@@ -28,6 +28,7 @@ from src.models import (
     DuplicatePolicy,
     ExportFormat,
     ExportRequest,
+    ExportResult,
     ExtractRequest,
     ImportRequest,
     ListRequest,
@@ -198,9 +199,19 @@ def build_export_request(args: argparse.Namespace) -> ExportRequest:
         export_format = ExportFormat(args.format)
     except ValueError as exc:
         raise ValidationError("지원하지 않는 내보내기 형식입니다.") from exc
+    try:
+        # Check before resolve() would hide a direct symlink to a different file.
+        requested = Path(args.output)
+        if not requested.is_absolute():
+            requested = PROJECT_ROOT / requested
+        if requested.is_symlink():
+            raise OutputError("심볼릭 링크에는 내보낼 수 없습니다. 실제 출력 경로를 지정하세요.")
+        output = _project_path(args.output)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise OutputError("출력 경로를 해석할 수 없습니다.") from exc
     return ExportRequest(
         filters=_review_filter(args),
-        output=_project_path(args.output),
+        output=output,
         format=export_format,
         force=getattr(args, "force", False),
     )
@@ -251,8 +262,20 @@ def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
         "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
-        "export": _adapt(services.export_reviews, build_export_request),
+        "export": build_export_handler(services.export_reviews),
     }
+
+
+def build_export_handler(
+    service_method: Callable[[ExportRequest], ExportResult],
+) -> CommandHandler:
+    def execute(request: ExportRequest) -> ExportResult:
+        result = service_method(request)
+        print(f"내보내기 완료: {result.row_count}건 ({result.artifact.format})")
+        print(f"파일: {result.artifact.path}")
+        return result
+
+    return _adapt(execute, build_export_request)
 
 
 def build_list_handler(
@@ -305,6 +328,7 @@ def build_analyze_handler(
 
 
 __all__ = [
+    "build_export_handler",
     "build_list_handler",
     "build_show_handler",
     "build_stats_handler",
