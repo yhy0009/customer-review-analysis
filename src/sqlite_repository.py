@@ -746,7 +746,8 @@ def _aggregate_statistics(rows: Sequence[sqlite3.Row]) -> ReviewStatistics:
             negative_keywords.update(keywords)
 
     unanalyzed = total - analyzed - failed
-    average_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+    # Keep the calculation precise; presentation code chooses display rounding.
+    average_rating = sum(ratings) / len(ratings) if ratings else None
 
     counts = {sentiment: sentiment_counts.get(sentiment, 0) for sentiment in Sentiment}
     ratios = {
@@ -763,11 +764,13 @@ def _aggregate_statistics(rows: Sequence[sqlite3.Row]) -> ReviewStatistics:
         sentiment_counts=counts,
         sentiment_ratios=ratios,
         daily_sentiment_counts={
-            day: dict(sentiments) for day, sentiments in sorted(daily.items())
+            day: {sentiment: sentiments.get(sentiment, 0) for sentiment in Sentiment}
+            for day, sentiments in sorted(daily.items())
         },
         rating_sentiment_matrix={
-            rating: dict(sentiments)
-            for rating, sentiments in sorted(rating_matrix.items())
+            rating: {sentiment: rating_matrix.get(rating, {}).get(sentiment, 0)
+                     for sentiment in Sentiment}
+            for rating in range(1, 6)
         },
         top_positive_keywords=_top_keywords(positive_keywords),
         top_negative_keywords=_top_keywords(negative_keywords),
@@ -784,7 +787,7 @@ def _load_keywords(raw: object) -> list[str]:
 def _top_keywords(counter: Counter[str]) -> list[KeywordCount]:
     return [
         KeywordCount(keyword=keyword, count=count)
-        for keyword, count in counter.most_common(_TOP_KEYWORD_LIMIT)
+        for keyword, count in sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:_TOP_KEYWORD_LIMIT]
     ]
 
 
