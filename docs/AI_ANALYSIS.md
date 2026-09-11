@@ -123,7 +123,9 @@ def run_analysis_cli(repository, options, argv):
 일부 또는 전체 행 실패는 1, 잘못된 대상·설정은 2, 저장소 오류는 3이다.
 `AnalysisService`는 분석 유스케이스만 제공하며 전체 `ApplicationServices` 구현이 아니다.
 `main.py`의 기본 저장소·서비스 생성 연결은 SQLite 통합 정리 후 진행한다.
-현재 테스트는 fake 저장소 기반이며 실제 SQLite와 전체 파이프라인 검증은 남아 있다.
+fake 저장소 단위 테스트와 실제 SQLite를 사용하는 분석 서비스 통합 테스트를 제공한다.
+SQLite 테스트는 AI 제공자만 mock으로 대체하며, 두 저장소 import 경로에서 저장·실패·재시도·
+강제 재분석·통계와 트랜잭션 롤백을 검증한다. 기본 CLI 진입점의 전체 실행 연결은 남아 있다.
 
 ## llama-server 확장
 
@@ -194,6 +196,7 @@ COPA 서버는 인증과 모델 목록 조회에 성공했지만 `gpt-5.6-luna`�
 ```bash
 python -m unittest discover -s tests -p 'test_analyzer.py' -v
 python -m unittest discover -s tests -p 'test_analysis_batch.py' -v
+python -m unittest discover -s tests -p 'test_sqlite_consistency.py' -v
 ```
 
 테스트는 fake 제공자와 실제 OpenAI SDK + HTTP mock을 사용한다. 외부 요청이나
