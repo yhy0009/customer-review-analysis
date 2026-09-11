@@ -31,6 +31,9 @@ from src.models import (
     ExtractRequest,
     ImportRequest,
     ListRequest,
+    Page,
+    ReviewDetail,
+    ReviewStatistics,
     ReportFormat,
     ReviewFilter,
     ReviewQuery,
@@ -41,6 +44,7 @@ from src.models import (
     StatsRequest,
 )
 from src.services import ApplicationServices
+from src.query_output import format_review_list, format_review_detail, format_statistics
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -243,16 +247,48 @@ def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
         "clean": _adapt(services.clean_reviews, build_clean_request),
         "analyze": build_analyze_handler(services.analyze_reviews),
         "extract": _adapt(services.extract_insights, build_extract_request),
-        "list": _adapt(services.list_reviews, build_list_request),
-        "show": _adapt(
-            services.show_review,
-            build_show_request,
-            missing_is_failure=True,
-        ),
-        "stats": _adapt(services.get_statistics, build_stats_request),
+        "list": build_list_handler(services.list_reviews),
+        "show": build_show_handler(services.show_review),
+        "stats": build_stats_handler(services.get_statistics),
         "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
         "export": _adapt(services.export_reviews, build_export_request),
     }
+
+
+def build_list_handler(
+    service_method: Callable[[ListRequest], Page[ReviewDetail]],
+) -> CommandHandler:
+    def execute(request: ListRequest) -> Page[ReviewDetail]:
+        result = service_method(request)
+        print(format_review_list(result))
+        return result
+
+    return _adapt(execute, build_list_request)
+
+
+def build_show_handler(
+    service_method: Callable[[ShowRequest], Optional[ReviewDetail]],
+) -> CommandHandler:
+    def execute(request: ShowRequest) -> Optional[ReviewDetail]:
+        result = service_method(request)
+        if result is None:
+            print(f"[ERROR] ID={request.review_id}인 정제 리뷰를 찾을 수 없습니다.", file=sys.stderr)
+        else:
+            print(format_review_detail(result))
+        return result
+
+    return _adapt(execute, build_show_request, missing_is_failure=True)
+
+
+def build_stats_handler(
+    service_method: Callable[[StatsRequest], ReviewStatistics],
+) -> CommandHandler:
+    def execute(request: StatsRequest) -> ReviewStatistics:
+        result = service_method(request)
+        print(format_statistics(result))
+        return result
+
+    return _adapt(execute, build_stats_request)
 
 
 def build_analyze_handler(
@@ -269,6 +305,9 @@ def build_analyze_handler(
 
 
 __all__ = [
+    "build_list_handler",
+    "build_show_handler",
+    "build_stats_handler",
     "build_analyze_handler",
     "build_analyze_request",
     "build_clean_request",
