@@ -229,19 +229,20 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 
 ### 5.2 핸들러 등록 경계
 
-`src/handlers.py`는 의존성이 주입된 핸들러 매핑을 생성하고, `main.py`는 해당 매핑을
-`src.cli.main()`에 전달한다.
+`src/handlers.py`는 의존성이 주입된 핸들러를 생성한다. `src.cli.main()`에 매핑을
+명시하면 해당 매핑을 사용하고, 생략하면 `src.runtime.build_default_handlers()`로
+현재 연결된 `list/show/stats`의 기본 매핑을 구성한다. 빈 매핑 `{}`도 명시적 주입으로 취급한다.
 
 ```python
 def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
     return {
         "import": _adapt(services.import_reviews, build_import_request),
         "clean": _adapt(services.clean_reviews, build_clean_request),
-        "analyze": _adapt(services.analyze_reviews, build_analyze_request),
+        "analyze": build_analyze_handler(services.analyze_reviews),
         "extract": _adapt(services.extract_insights, build_extract_request),
-        "list": _adapt(services.list_reviews, build_list_request),
-        "show": _adapt(services.show_review, build_show_request),
-        "stats": _adapt(services.get_statistics, build_stats_request),
+        "list": build_list_handler(services.list_reviews),
+        "show": build_show_handler(services.show_review),
+        "stats": build_stats_handler(services.get_statistics),
         "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
         "export": _adapt(services.export_reviews, build_export_request),
     }
@@ -261,8 +262,9 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 | `create_dashboard` | `DashboardRequest` | `DashboardResult` |
 | `export_reviews` | `ExportRequest` | `ExportResult` |
 
-구현체가 아직 없으므로 `main.py`의 기본 실행은 미연결 오류를 유지한다. 실제 서비스가
-준비되면 `src.handlers.build_handlers()`에 구현체를 주입해 CLI에 연결한다.
+`QueryService`는 목록·상세·통계를 구현한다. 기본 조회 핸들러는 인자 검증 후 설정에서
+SQLite를 열고 서비스 실행 뒤 연결을 닫는다. 나머지 기본 명령은 미연결 오류를 유지한다.
+전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
 
 ### 5.3 CLI 명령 인자
 
@@ -634,7 +636,7 @@ class OutputError(AppError): ...
 `src/sqlite_repository.py`의 `SQLiteReviewRepository(database_path)`가 Raw/Clean/Analysis
 저장·조회 및 통계를 구현한다. 기존 `src.storage.SQLiteReviewRepository`와
 `src.sqlite_repository.SqliteReviewRepository`는 동일한 구현을 가리키는 호환 이름이다.
-JSONL, 내보내기 및 실제 CLI 서비스 연결은 후속 작업이다.
+JSONL과 내보내기는 후속 작업이다. 기본 CLI의 list/show/stats는 조회 서비스에 연결돼 있다.
 
 - 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
 - `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
@@ -722,8 +724,25 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 `AnalysisService`는 전체·미분석·단건 대상을 조회하여 배치 분석기로 전달한다.
 `build_analyze_handler()`는 분석 서비스만 CLI에 주입할 수 있으며 처리 건수 요약과
-공통 종료 코드를 제공한다. 전체 `ApplicationServices` 구성과 `main.py`의 기본
-실행 연결은 후속 작업이다. fake 저장소 배치 테스트와 함께 실제 SQLite에 분석 서비스를
+공통 종료 코드를 제공한다. `main.py`의 기본 list/show/stats는 연결됐으며,
+분석 기본 연결과 전체 `ApplicationServices` 구성은 후속 작업이다. fake 저장소 배치 테스트와 함께 실제 SQLite에 분석 서비스를
 연결하여 저장·실패·재시도·강제 재분석·저장소 오류 중단과 통계를 검증한다.
 
 실행 예시, 테스트 방법, llama-server 확장 경계는 [AI 분석 안내](AI_ANALYSIS.md)를 따른다.
+
+
+## 19. 조회 CLI 구현 현황
+
+`QueryService`는 Repository의 `list_reviews`, `get_review`, `get_statistics`를 호출한다.
+`src/query_output.py`는 조회 결과를 순수 문자열로 변환하며 핸들러가 stdout으로 출력한다.
+기존 요청·결과 모델과 공통 Repository 계약은 변경하지 않는다.
+
+- `show`는 Clean 본문과 최신 분석 결과를 표시한다. 분석 데이터가 없으면 미분석/실패를
+  추측하지 않고 `분석 결과 없음`을 표시한다. ID 없음은 stderr 안내와 종료 코드 1이다.
+- 빈 목록·범위 밖 페이지·빈 통계는 정상 조회(종료 코드 0)다.
+- 통계의 분석 완료율은 전체 Clean 기준, 감정 비율은 분석 완료 수 기준이다.
+- 상대 설정 파일, `.env`, 로그 파일 경로는 기존 DB·입출력 경로와 같이 프로젝트 루트 기준이다.
+- 요청 인자 검증 뒤 DB를 열고 항상 닫는다. 미연결 명령은 DB를 열지 않는다.
+- 조회를 실행하기 위해 AI SDK 또는 API 키를 준비할 필요는 없다.
+
+실행 예시와 명령별 종료 코드는 [조회 CLI 안내](QUERY_CLI.md)를 참고한다.
