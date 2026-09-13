@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import stat
 import sys
 from datetime import date
 from pathlib import Path
@@ -204,7 +205,13 @@ def build_export_request(args: argparse.Namespace) -> ExportRequest:
         requested = Path(args.output)
         if not requested.is_absolute():
             requested = PROJECT_ROOT / requested
-        if requested.is_symlink():
+        # Unlike is_symlink(), lstat() preserves path errors on Python 3.14.
+        # A missing destination is valid because export creates a new file.
+        try:
+            output_stat = requested.lstat()
+        except FileNotFoundError:
+            output_stat = None
+        if output_stat is not None and stat.S_ISLNK(output_stat.st_mode):
             raise OutputError("심볼릭 링크에는 내보낼 수 없습니다. 실제 출력 경로를 지정하세요.")
         output = _project_path(args.output)
     except (OSError, RuntimeError, ValueError) as exc:
