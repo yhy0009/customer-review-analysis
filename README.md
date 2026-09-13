@@ -128,6 +128,9 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── models.py            # 모듈 경계용 공통 enum/dataclass
 │   ├── services.py          # 기능 모듈 및 애플리케이션 서비스 Protocol
 │   ├── handlers.py          # CLI 인자 → 요청 객체 변환 및 서비스 연결
+│   ├── runtime.py           # 기본 CLI 명령 구성과 저장소 연결 수명 관리
+│   ├── query_service.py     # 목록·상세·통계 조회 서비스
+│   ├── query_output.py      # 조회 결과 콘솔 표시
 │   ├── collector.py         # 데이터 수집 (CSV/Excel 로더)
 │   ├── cleaner.py           # 데이터 정제 및 유효성 검증
 │   ├── storage.py           # SQLite/JSONL 영구 저장소 관리 모듈
@@ -178,6 +181,11 @@ cp config/config_example.json config/config.json
 ---
 
 ## 💻 8. CLI 사용법 (Usage Guide)
+
+현재 `main.py`의 기본 실행은 **`list`, `show`, `stats`**를 지원합니다.
+설정된 SQLite의 정제 리뷰와 분석 결과를 조회하며, 데이터가 없으면 빈 결과를 안내합니다.
+나머지 명령은 아래 사용 형식을 정의한 상태이며 기본 실행 연결은 후속 작업입니다.
+조회 필터, 출력 내용, 종료 코드와 경로 규칙은 [조회 CLI 안내](docs/QUERY_CLI.md)를 참고하세요.
 
 > 구현 현황: GPT-5-mini 단건 분석과 저장소 주입 방식의 배치 분석·재시도를 제공합니다.
 > [AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.

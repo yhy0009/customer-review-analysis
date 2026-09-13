@@ -323,4 +323,9 @@ def main(
 
     setattr(args, "app_config", app_config)
     logger.debug("설정 및 로깅 초기화 완료: command=%s", args.command)
+    if handlers is None:
+        # Delay composition until parsing/configuration succeeded. An explicitly
+        # injected mapping, including {}, always takes precedence.
+        from src.runtime import build_default_handlers
+        handlers = build_default_handlers()
     return dispatch(args, handlers=handlers)

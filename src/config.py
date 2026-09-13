@@ -14,6 +14,9 @@ from typing import Any, Mapping, MutableMapping, Optional, TextIO
 from src.errors import ConfigError
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 LOGGER_NAME = "customer_review_analysis"
 _HANDLER_MARKER = "_customer_review_analysis_handler"
@@ -69,13 +72,22 @@ ENV_OVERRIDES = {
 }
 
 
+def resolve_project_path(path: Path | str) -> Path:
+    """Resolve relative configuration and log paths against the project root."""
+    path = Path(path)
+    try:
+        return (path if path.is_absolute() else PROJECT_ROOT / path).resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ConfigError(f"경로를 해석할 수 없습니다: {path}") from exc
+
+
 def load_env_file(
     path: Path | str = ".env",
     environ: Optional[MutableMapping[str, str]] = None,
     override: bool = False,
 ) -> dict[str, str]:
     """Load simple KEY=VALUE entries without overriding the real environment."""
-    env_path = Path(path)
+    env_path = resolve_project_path(path)
     if not env_path.exists():
         return {}
 
@@ -239,7 +251,7 @@ def load_config(
     environ: Optional[Mapping[str, str]] = None,
 ) -> dict[str, Any]:
     """Load JSON configuration, merge defaults, then apply environment values."""
-    config_path = Path(path)
+    config_path = resolve_project_path(path)
     try:
         with config_path.open("r", encoding="utf-8") as config_file:
             loaded = json.load(config_file)
@@ -306,8 +318,8 @@ def configure_logging(
 
     log_file = logging_config.get("file")
     if log_file is not None:
-        log_path = Path(log_file)
         try:
+            log_path = resolve_project_path(log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             file_handler = _mark_handler(
                 RotatingFileHandler(
@@ -317,9 +329,9 @@ def configure_logging(
                     encoding="utf-8",
                 )
             )
-        except OSError as exc:
+        except (OSError, ConfigError) as exc:
             _clear_managed_handlers(logger)
-            raise ConfigError(f"로그 파일을 준비할 수 없습니다: {log_path}") from exc
+            raise ConfigError(f"로그 파일을 준비할 수 없습니다: {log_file}") from exc
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)

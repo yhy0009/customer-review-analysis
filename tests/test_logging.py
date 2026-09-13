@@ -59,6 +59,14 @@ class LoggingSetupTests(unittest.TestCase):
         self.assertEqual(logger.level, logging.DEBUG)
         self.assertIn("디버그 메시지", stream.getvalue())
 
+    def test_unresolvable_log_path_cleans_up_console_handler(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            loop = Path(directory) / "loop.log"
+            loop.symlink_to(loop.name)
+            with self.assertRaises(ConfigError):
+                configure_logging(self.make_config(str(loop)), stream=io.StringIO())
+            self.assertEqual(get_logger().handlers, [])
+
     def test_invalid_level_override_is_rejected(self) -> None:
         with self.assertRaisesRegex(ConfigError, "지원하지 않는 로그 레벨"):
             configure_logging(self.make_config(None), level_override="TRACE")
