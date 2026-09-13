@@ -7,6 +7,7 @@ import json
 import math
 import sqlite3
 import unicodedata
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 from src.config import get_logger
 from src.errors import StorageError, ValidationError
 
-from typing import Any, List, Mapping, Optional, Sequence
+from typing import Any, Iterator, List, Mapping, Optional, Sequence
 from collections import Counter, defaultdict
 
 from src.models import (
@@ -659,6 +660,18 @@ class SQLiteReviewRepository:
         except (ValueError, TypeError, ValidationError) as exc:
             raise StorageError("저장된 통계 데이터를 해석할 수 없습니다.") from exc
 
+    @contextmanager
+    def read_snapshot(self) -> Iterator[SQLiteReviewRepository]:
+        """Keep paginated export reads consistent within one SQLite transaction."""
+        connection = self._require_connection()
+        if connection.in_transaction:
+            raise StorageError("다른 트랜잭션 중에는 내보내기 조회를 시작할 수 없습니다.")
+        try:
+            with connection:
+                connection.execute("BEGIN")
+                yield self
+        except sqlite3.Error as exc:
+            raise StorageError("내보내기용 저장소 조회에 실패했습니다.") from exc
 
     def close(self) -> None:
         """Close the connection; repeated calls are safe."""
