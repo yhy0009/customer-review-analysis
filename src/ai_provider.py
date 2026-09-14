@@ -39,6 +39,9 @@ class AnalysisProvider(Protocol):
 class OpenAIProvider:
     """OpenAI Chat Completions with strict structured outputs."""
 
+    def __init__(self, *, max_completion_tokens: int = 1024):
+        self.max_completion_tokens = max_completion_tokens
+
     def _base_url(self, options: AnalysisOptions) -> str:
         if options.provider != "openai" or options.base_url is not None:
             raise ConfigError("별도 서버는 provider=openai-compatible과 base_url을 설정하세요.")
@@ -50,7 +53,7 @@ class OpenAIProvider:
             "response_format": {"type": "json_schema", "json_schema": {
                 "name": "review_analysis", "strict": True, "schema": schema,
             }},
-            "max_completion_tokens": 1024,
+            "max_completion_tokens": self.max_completion_tokens,
             "store": False,
         }
         if options.reasoning_effort is not None:
@@ -135,9 +138,9 @@ class OpenAICompatibleProvider(OpenAIProvider):
         return options.base_url.rstrip("/")
 
 
-def provider_for(options: AnalysisOptions) -> AnalysisProvider:
+def provider_for(options: AnalysisOptions, *, max_completion_tokens: int = 1024) -> AnalysisProvider:
     if options.provider == "openai":
-        return OpenAIProvider()
+        return OpenAIProvider(max_completion_tokens=max_completion_tokens)
     if options.provider == "openai-compatible":
-        return OpenAICompatibleProvider()
+        return OpenAICompatibleProvider(max_completion_tokens=max_completion_tokens)
     raise ConfigError("지원하지 않는 AI 제공자입니다.")

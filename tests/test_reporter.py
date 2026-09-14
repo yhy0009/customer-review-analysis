@@ -23,6 +23,7 @@ from src.models import (
 from src.reporter import FileReportGenerator
 from src.services import ReportGenerator
 from src.storage import SQLiteReviewRepository
+from tests.insight_fixtures import staged_reply
 
 
 class ReportTests(unittest.TestCase):
@@ -99,7 +100,24 @@ class ReportTests(unittest.TestCase):
         self.assertIn("실제 추출 대상: 분석 완료 리뷰 1건", text)
         self.assertIn("감정=부정", self.generate(ReportFormat.TXT)[1])
         self.assertIn("대상 범위는 서로 다를 수 있습니다", text)
-        self.assertIn("추출 대상 부정 TOP 10", text)
+        self.assertIn("추출 대상 부정 리뷰의 키워드 TOP 10", text)
+        self.assertEqual((self.stats, self.insight), before)
+
+    def test_adverse_keyword_stays_in_positive_review_group_in_both_formats(self):
+        self.stats.top_positive_keywords = [KeywordCount("배송 지연", 2)]
+        self.insight.positive_keywords = [KeywordCount("배송 지연", 1)]
+        before = copy.deepcopy((self.stats, self.insight))
+        for fmt in ReportFormat:
+            with self.subTest(fmt=fmt):
+                _, text = self.generate(fmt)
+                group = text.split("긍정 리뷰의 키워드", 1)[1].split("부정 리뷰의 키워드", 1)[0]
+                self.assertIn("배송 지연", group)
+                self.assertIn("2건", group)
+                insight_group = text.split("추출 대상 긍정 리뷰의 키워드 TOP 10", 1)[1].split(
+                    "추출 대상 부정 리뷰의 키워드 TOP 10", 1)[0]
+                self.assertIn("배송 지연", insight_group)
+                self.assertIn("1건", insight_group)
+                self.assertIn("리뷰 전체의 감정별로 묶습니다", text)
         self.assertEqual((self.stats, self.insight), before)
 
     def test_missing_and_empty_insights_never_invent_a_summary(self):
@@ -224,6 +242,8 @@ class ReportTests(unittest.TestCase):
             provider = Mock(spec=AnalysisProvider)
             provider.complete.return_value = ProviderResponse(json.dumps({"summary": "포장 불만이 있습니다.",
                 "issues": ["포장 손상"], "improvement_suggestions": ["포장 보강을 권장합니다."]}), "test")
+            provider.complete.side_effect = lambda messages, schema, options: staged_reply(
+                messages, schema, provider.complete.return_value, label="포장 손상")
             extractor = AIInsightExtractor(AnalysisOptions(provider="fake", model="test", timeout_seconds=5,
                                                           max_retries=0), provider)
             insight = InsightService(repo, extractor, snapshot=repo.read_snapshot).extract_insights(
@@ -235,7 +255,7 @@ class ReportTests(unittest.TestCase):
                 self.assertIn("33.3%", text)
                 self.assertIn("포장 손상", text)
                 self.assertIn("실제 추출 대상: 분석 완료 리뷰 1건", text)
-            self.assertEqual(provider.complete.call_count, 1)
+            self.assertEqual(provider.complete.call_count, 2)
             self.assertEqual(repo.get_statistics(), stats)
 
 

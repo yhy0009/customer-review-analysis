@@ -188,8 +188,9 @@ class FileReportGenerator:
         ])
         heading(f"통계 대상 TOP {self.top_n} 키워드")
         lines.append("빈도는 해당 키워드를 포함한 리뷰 수입니다.")
-        keywords("긍정 키워드", stats.top_positive_keywords)
-        keywords("부정 키워드", stats.top_negative_keywords)
+        lines.append("키워드는 리뷰 전체의 감정별로 묶습니다. 긍정 리뷰의 키워드에도 불편한 점이 포함될 수 있습니다.")
+        keywords("긍정 리뷰의 키워드", stats.top_positive_keywords)
+        keywords("부정 리뷰의 키워드", stats.top_negative_keywords)
 
         heading("AI 인사이트")
         if insight is None:
@@ -210,8 +211,8 @@ class FileReportGenerator:
                 for title, items in (("주요 이슈", insight.issues), ("개선 제안", insight.improvement_suggestions)):
                     lines.extend(["", "### " + title if markdown else title, ""])
                     lines.extend(["- " + _text(item, markdown) for item in items] if items else ["제공된 항목이 없습니다."])
-                keywords(f"추출 대상 긍정 TOP {self.top_n}", insight.positive_keywords)
-                keywords(f"추출 대상 부정 TOP {self.top_n}", insight.negative_keywords)
+                keywords(f"추출 대상 긍정 리뷰의 키워드 TOP {self.top_n}", insight.positive_keywords)
+                keywords(f"추출 대상 부정 리뷰의 키워드 TOP {self.top_n}", insight.negative_keywords)
                 lines.extend(["", "개선 제안은 AI가 생성한 검토 항목이며 효과가 검증된 결론은 아닙니다."])
         return "\n".join(lines) + "\n"
 

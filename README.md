@@ -195,6 +195,7 @@ cp config/config_example.json config/config.json
 > 조건별 키워드 집계와 AI 이슈·개선안 요약 서비스도 제공합니다.
 > 대상 선택·입력 한도·서비스 연결 방법은 [인사이트 추출 안내](docs/INSIGHT_EXTRACTION.md)에 있습니다.
 > 통계와 선택적 인사이트를 TXT·Markdown으로 저장하는 [종합 리포트 생성기](docs/REPORT_GENERATION.md)를 제공합니다.
+> 고정 합성 리뷰의 분류 지표와 서비스 전체 흐름을 검증하는 [AI 평가 도구](docs/AI_EVALUATION.md)도 제공합니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
 > 아래 예시 중 `import`, `clean`, `dashboard`는 후속 연결을 위한 목표 사용법입니다.
 
