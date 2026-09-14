@@ -788,3 +788,19 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   자르지 않고 필터나 `limit`을 줄이도록 안내한다. 대량 입력 분할 요약은 후속 작업이다.
 
 상세 규칙과 서비스 연결·검증 방법은 [인사이트 추출 안내](INSIGHT_EXTRACTION.md)를 따른다.
+
+## 22. 종합 리포트 구현 현황
+
+`src/reporter.py`의 `FileReportGenerator`는 기존 `ReportGenerator` Protocol을 구현한다.
+`ReviewStatistics`와 선택적인 `InsightResult`를 받아 TXT·Markdown 리포트를 생성하고
+`OutputArtifact`를 반환한다. 저장소 조회·AI 호출·차트 생성·CLI 출력은 호출자가 조율한다.
+
+- 처리 건수, 정제 리뷰 기준 완료율·실패율, 평균 별점, 감정 비율, 날짜·별점별 집계와
+  전달된 순서의 TOP N 키워드를 표시한다. 원본 리뷰를 재집계하지 않는다.
+- 인사이트의 자체 조건·실제 대상 수·시각을 별도 표시한다. 통계 DTO에 조회 조건이 없으므로
+  두 결과가 같은 모집단이라는 가정을 하지 않는다. 인사이트 없이도 리포트를 생성한다.
+- 자동 파일명은 `report_YYYYMMDD_HHMMSS.txt|md`(UTC), 인코딩은 UTF-8이며 반환 경로는
+  절대경로다. `force=True`일 때만 기존 파일을 교체하고 실패 시 기존 내용을 보존한다.
+- Markdown에서는 외부 텍스트의 마크업을 이스케이프한다. 통계와 인사이트 입력은 변경하지 않는다.
+
+상세 출력 규칙과 dashboard 조율자 연결 예시는 [종합 리포트 안내](REPORT_GENERATION.md)를 따른다.
