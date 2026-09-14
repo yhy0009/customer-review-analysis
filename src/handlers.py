@@ -32,6 +32,7 @@ from src.models import (
     ExportResult,
     ExtractRequest,
     ImportRequest,
+    InsightResult,
     ListRequest,
     Page,
     ReviewDetail,
@@ -46,7 +47,12 @@ from src.models import (
     StatsRequest,
 )
 from src.services import ApplicationServices
-from src.query_output import format_review_list, format_review_detail, format_statistics
+from src.query_output import (
+    format_insight_result,
+    format_review_list,
+    format_review_detail,
+    format_statistics,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -264,7 +270,7 @@ def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
         "import": _adapt(services.import_reviews, build_import_request),
         "clean": _adapt(services.clean_reviews, build_clean_request),
         "analyze": build_analyze_handler(services.analyze_reviews),
-        "extract": _adapt(services.extract_insights, build_extract_request),
+        "extract": build_extract_handler(services.extract_insights),
         "list": build_list_handler(services.list_reviews),
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
@@ -283,6 +289,17 @@ def build_export_handler(
         return result
 
     return _adapt(execute, build_export_request)
+
+
+def build_extract_handler(
+    service_method: Callable[[ExtractRequest], InsightResult],
+) -> CommandHandler:
+    def execute(request: ExtractRequest) -> InsightResult:
+        result = service_method(request)
+        print(format_insight_result(result))
+        return result
+
+    return _adapt(execute, build_extract_request)
 
 
 def build_list_handler(
@@ -335,6 +352,7 @@ def build_analyze_handler(
 
 
 __all__ = [
+    "build_extract_handler",
     "build_export_handler",
     "build_list_handler",
     "build_show_handler",

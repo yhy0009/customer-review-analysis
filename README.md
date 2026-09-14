@@ -130,7 +130,7 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── handlers.py          # CLI 인자 → 요청 객체 변환 및 서비스 연결
 │   ├── runtime.py           # 기본 CLI 명령 구성과 저장소 연결 수명 관리
 │   ├── query_service.py     # 목록·상세·통계 조회 서비스
-│   ├── query_output.py      # 조회 결과 콘솔 표시
+│   ├── query_output.py      # 조회·인사이트 결과 콘솔 표시
 │   ├── export_service.py    # 조건에 맞는 전체 리뷰 조회와 내보내기 조율
 │   ├── collector.py         # 데이터 수집 (CSV/Excel 로더)
 │   ├── cleaner.py           # 데이터 정제 및 유효성 검증
@@ -183,11 +183,12 @@ cp config/config_example.json config/config.json
 
 ## 💻 8. CLI 사용법 (Usage Guide)
 
-현재 `main.py`의 기본 실행은 **`list`, `show`, `stats`, `export`**를 지원합니다.
-설정된 SQLite의 정제 리뷰와 분석 결과를 조회하며, 데이터가 없으면 빈 결과를 안내합니다.
-나머지 명령은 아래 사용 형식을 정의한 상태이며 기본 실행 연결은 후속 작업입니다.
+현재 `main.py`의 기본 실행은 **`analyze`, `extract`, `list`, `show`, `stats`, `export`**를 지원합니다.
+설정된 SQLite의 정제 리뷰를 분석하고 인사이트 추출·조회·내보내기를 수행합니다.
+`import`, `clean`, `dashboard`는 아래 사용 형식을 정의한 상태이며 기본 실행 연결은 후속 작업입니다.
 조회 필터와 경로 규칙은 [조회 CLI 안내](docs/QUERY_CLI.md), 파일 포맷과 덮어쓰기 규칙은
 [내보내기 안내](docs/EXPORT.md)를 참고하세요.
+분석·추출 명령의 설정, 출력과 종료 코드는 [AI CLI 실행 안내](docs/AI_CLI.md)에 있습니다.
 
 > 구현 현황: GPT-5-mini 단건 분석과 저장소 주입 방식의 배치 분석·재시도를 제공합니다.
 > [AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.
@@ -195,8 +196,7 @@ cp config/config_example.json config/config.json
 > 대상 선택·입력 한도·서비스 연결 방법은 [인사이트 추출 안내](docs/INSIGHT_EXTRACTION.md)에 있습니다.
 > 통계와 선택적 인사이트를 TXT·Markdown으로 저장하는 [종합 리포트 생성기](docs/REPORT_GENERATION.md)를 제공합니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
-> 아래 CLI 예시는 목표 사용법입니다. 분석 전용 CLI 어댑터는 구현됐으며,
-> `main.py`의 기본 저장소·서비스 생성 연결은 아직 후속 작업입니다.
+> 아래 예시 중 `import`, `clean`, `dashboard`는 후속 연결을 위한 목표 사용법입니다.
 
 ```bash
 # 1. 리뷰 데이터 가져오기 (Raw 적재)
