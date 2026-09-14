@@ -2,7 +2,8 @@
 
 `AIInsightExtractor`는 기존 `InsightExtractor` Protocol을 구현한다.
 `InsightService.extract_insights(ExtractRequest)`는 저장소에서 대상을 선택해
-`InsightResult`를 반환한다. 기본 `main.py extract` 등록과 콘솔 출력은 CLI 통합 작업이다.
+`InsightResult`를 반환한다. 기본 `main.py extract` 등록과 콘솔 출력도 연결됐으며
+실행 방법은 [AI CLI 실행 안내](AI_CLI.md)를 따른다.
 
 ## 대상과 집계 규칙
 
@@ -78,7 +79,7 @@ SQLite에서는 반드시 `snapshot=repository.read_snapshot`을 주입해 다�
 스냅샷을 생략하면 페이지별 건수·순서 검사는 수행하지만, 건수가 같은 동시 수정까지
 검출할 수는 없다. 연결 생성·종료는 호출자가 소유하며 공통 Repository Protocol은 유지한다.
 
-`InsightResult`는 CLI 출력 어댑터나 향후 `ReportGenerator`로 전달하면 된다.
+`InsightResult`는 CLI 출력 어댑터나 `ReportGenerator`로 전달하면 된다.
 
 ## 검증
 

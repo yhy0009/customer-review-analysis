@@ -52,7 +52,8 @@ python main.py --config config/query.json stats
   명시적으로 주입한 빈 매핑도 기본 매핑으로 대체하지 않는다.
 
 `export`도 기본 CLI에 연결돼 있으며 [내보내기 안내](EXPORT.md)를 따른다.
-`import`, `clean`, `analyze`, `extract`, `dashboard`의 기본 CLI 연결은 후속 작업이다.
+`analyze`·`extract`도 [AI CLI 실행 안내](AI_CLI.md)에 따라 기본 실행할 수 있다.
+`import`, `clean`, `dashboard`의 기본 CLI 연결은 후속 작업이다.
 기존 모듈을 이용해 적재한 SQLite DB를 조회할 수 있다. 원본만 저장되고 정제가 끝나지 않은
 리뷰는 조회에 포함되지 않는다. AI 팀이 사용하는 별도 분석 핸들러 주입 방식은 유지한다.
 

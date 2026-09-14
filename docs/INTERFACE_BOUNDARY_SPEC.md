@@ -231,7 +231,8 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 
 `src/handlers.py`는 의존성이 주입된 핸들러를 생성한다. `src.cli.main()`에 매핑을
 명시하면 해당 매핑을 사용하고, 생략하면 `src.runtime.build_default_handlers()`로
-현재 연결된 `list/show/stats/export`의 기본 매핑을 구성한다. 빈 매핑 `{}`도 명시적 주입으로 취급한다.
+현재 연결된 `analyze/extract/list/show/stats/export`의 기본 매핑을 구성한다.
+빈 매핑 `{}`도 명시적 주입으로 취급한다.
 
 ```python
 def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
@@ -239,7 +240,7 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
         "import": _adapt(services.import_reviews, build_import_request),
         "clean": _adapt(services.clean_reviews, build_clean_request),
         "analyze": build_analyze_handler(services.analyze_reviews),
-        "extract": _adapt(services.extract_insights, build_extract_request),
+        "extract": build_extract_handler(services.extract_insights),
         "list": build_list_handler(services.list_reviews),
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
@@ -264,7 +265,8 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 
 `QueryService`는 목록·상세·통계를 구현한다. 기본 조회 핸들러는 인자 검증 후 설정에서
 SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 기본 `export` 명령에 연결됐다.
-나머지 기본 명령은 미연결 오류를 유지한다.
+기존 `AnalysisService`·`InsightService`도 기본 `analyze`·`extract`에 연결됐다.
+`import`, `clean`, `dashboard`는 미연결 오류를 유지한다.
 전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
 
 ### 5.3 CLI 명령 인자
@@ -637,7 +639,8 @@ class OutputError(AppError): ...
 `src/sqlite_repository.py`의 `SQLiteReviewRepository(database_path)`가 Raw/Clean/Analysis
 저장·조회 및 통계를 구현한다. 기존 `src.storage.SQLiteReviewRepository`와
 `src.sqlite_repository.SqliteReviewRepository`는 동일한 구현을 가리키는 호환 이름이다.
-JSONL 저장소는 후속 작업이다. 기본 CLI의 list/show/stats와 export는 각각 조회·내보내기 서비스에 연결돼 있다.
+JSONL 저장소는 후속 작업이다. 기본 CLI의 list/show/stats와 export는 각각 조회·내보내기 서비스에,
+analyze/extract는 기존 AI 서비스에 연결돼 있다.
 
 - 상대 DB 경로는 프로젝트 루트 기준이다. 상위 디렉터리를 생성하며 메모리 DB는 허용하지 않는다.
 - `with SQLiteReviewRepository(path) as repository:`로 사용하면 종료 시 연결을 닫는다.
@@ -725,8 +728,8 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 `AnalysisService`는 전체·미분석·단건 대상을 조회하여 배치 분석기로 전달한다.
 `build_analyze_handler()`는 분석 서비스만 CLI에 주입할 수 있으며 처리 건수 요약과
-공통 종료 코드를 제공한다. `main.py`의 기본 list/show/stats/export는 연결됐으며,
-분석 기본 연결과 전체 `ApplicationServices` 구성은 후속 작업이다. fake 저장소 배치 테스트와 함께 실제 SQLite에 분석 서비스를
+공통 종료 코드를 제공한다. `main.py`의 기본 analyze/extract/list/show/stats/export는 연결됐다.
+전체 `ApplicationServices` 구성은 후속 작업이다. fake 저장소 배치 테스트와 함께 실제 SQLite에 분석 서비스를
 연결하여 저장·실패·재시도·강제 재분석·저장소 오류 중단과 통계를 검증한다.
 
 실행 예시, 테스트 방법, llama-server 확장 경계는 [AI 분석 안내](AI_ANALYSIS.md)를 따른다.
@@ -774,7 +777,7 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 `src/insight_extractor.py`의 `AIInsightExtractor`는 기존 `InsightExtractor` Protocol을
 구현하고, `src/insight_service.py`의 `InsightService`는 `ExtractRequest`를 받아
-`InsightResult`를 반환한다. 공통 모델·Protocol과 기본 CLI 등록은 변경하지 않는다.
+`InsightResult`를 반환한다. 공통 모델·Protocol은 유지하며 기본 CLI 연결은 23절을 따른다.
 
 - 조건에 맞는 분석 완료 리뷰를 ID 오름차순으로 선택한 뒤 `limit`을 적용한다.
   `review_count`는 실제 선택 수다. 중립도 포함하며 미분석·실패는 제외한다.
@@ -804,3 +807,23 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 - Markdown에서는 외부 텍스트의 마크업을 이스케이프한다. 통계와 인사이트 입력은 변경하지 않는다.
 
 상세 출력 규칙과 dashboard 조율자 연결 예시는 [종합 리포트 안내](REPORT_GENERATION.md)를 따른다.
+
+## 23. 분석·인사이트 기본 CLI 연결
+
+`src/runtime.py`는 공통 AI 설정에서 `AnalysisOptions`를 구성하고 기존 분석·추출 서비스를
+기본 명령에 연결한다. AI 코어와 공유 Repository·Request·Result 계약은 유지한다.
+
+- `analyze`: `AnalysisService`와 `BatchReviewAnalyzer`를 조합한다. 기존 선택·건너뛰기·
+  재시도·저장 동작과 `processed/succeeded/skipped/failed` 출력을 사용한다.
+- `extract`: `InsightService`와 `AIInsightExtractor`를 조합하며
+  `snapshot=repository.read_snapshot`을 주입한다. AI 호출 전에 읽기 트랜잭션을 종료한다.
+- `build_extract_handler()`가 `format_insight_result()`의 한국어 문자열을 출력한다.
+  실제 대상 수·필터·UTC 생성 시각·키워드별 리뷰 수·요약·이슈·개선안을 표시한다.
+  대상 0건에서는 기존 선택 필드에 내용이 남아 있어도 AI 요약으로 표시하지 않는다.
+- AI 명령을 실행할 때만 SDK를 import한다. SDK 누락은 설정 오류(2)이며 조회·CSV/JSONL
+  내보내기와 도움말은 AI SDK가 없어도 동작한다. 명시적 핸들러·빈 매핑 주입도 유지한다.
+- 각 명령은 요청 검증 후 연결을 열고 성공·실패 모두 연결을 닫는다. 분석 배치의 행 실패는
+  1, 설정·인자 오류는 2, 저장소 오류는 3, 추출 AI 오류는 4로 매핑한다.
+- 공통 설정의 지원 필드만 AI 옵션에 전달하며 각 모듈의 내장 프롬프트 버전을 사용한다.
+
+기본 실행 사용법과 통합 테스트는 [AI CLI 실행 안내](AI_CLI.md)를 따른다.
