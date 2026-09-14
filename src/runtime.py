@@ -1,25 +1,93 @@
 """Compose executable commands lazily from the loaded application config.
 
-Each query or export owns one repository connection. Importing this module does
-not open a DB, import an AI SDK or create clients for unconnected commands.
+Each command owns one repository connection. AI services and their SDK are
+imported only when analyze or extract executes, after request validation.
 """
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from src.cli import CommandHandler
-from src.errors import OutputError
+from src.errors import ConfigError, OutputError
 from src.export_service import ExportService
 from src.handlers import (
+    build_analyze_handler,
+    build_extract_handler,
     build_export_handler,
     build_list_handler,
     build_show_handler,
     build_stats_handler,
 )
-from src.models import ExportRequest, ExportResult
+from src.models import (
+    AnalysisBatchResult,
+    AnalysisOptions,
+    AnalyzeRequest,
+    ExportRequest,
+    ExportResult,
+    ExtractRequest,
+    InsightResult,
+)
 from src.query_service import QueryService
 from src.sqlite_repository import SQLiteReviewRepository
+
+
+def _ai_options(config: Mapping[str, Any]) -> AnalysisOptions:
+    ai = config.get("ai")
+    if not isinstance(ai, Mapping):
+        raise ConfigError("설정 섹션 'ai'가 올바르지 않습니다.")
+    # config permits future extension keys; pass only the shared supported fields.
+    # Each AI module selects its own built-in prompt version when this is None.
+    return AnalysisOptions(
+        provider=ai.get("provider"),
+        model=ai.get("model"),
+        timeout_seconds=ai.get("timeout_seconds"),
+        max_retries=ai.get("max_retries"),
+        api_key=ai.get("api_key"),
+        base_url=ai.get("base_url"),
+        reasoning_effort=ai.get("reasoning_effort", "minimal"),
+    )
+
+
+def _analyze_handler(args: argparse.Namespace) -> int:
+    def execute(request: AnalyzeRequest) -> AnalysisBatchResult:
+        options = _ai_options(args.app_config)
+        try:
+            from src.ai_provider import provider_for
+            from src.analysis_service import AnalysisService
+            from src.analyzer import BatchReviewAnalyzer
+        except ImportError:
+            raise ConfigError(
+                "AI 명령 실행에 필요한 패키지가 없습니다. requirements.txt의 의존성을 설치하세요."
+            ) from None
+
+        provider = provider_for(options)
+        with SQLiteReviewRepository.from_config(args.app_config) as repository:
+            analyzer = BatchReviewAnalyzer(repository, provider=provider)
+            return AnalysisService(repository, analyzer, options).analyze_reviews(request)
+
+    return build_analyze_handler(execute)(args)
+
+
+def _extract_handler(args: argparse.Namespace) -> int:
+    def execute(request: ExtractRequest) -> InsightResult:
+        options = _ai_options(args.app_config)
+        try:
+            from src.ai_provider import provider_for
+            from src.insight_extractor import AIInsightExtractor
+            from src.insight_service import InsightService
+        except ImportError:
+            raise ConfigError(
+                "AI 명령 실행에 필요한 패키지가 없습니다. requirements.txt의 의존성을 설치하세요."
+            ) from None
+
+        provider = provider_for(options)
+        with SQLiteReviewRepository.from_config(args.app_config) as repository:
+            extractor = AIInsightExtractor(options, provider=provider)
+            service = InsightService(repository, extractor, snapshot=repository.read_snapshot)
+            return service.extract_insights(request)
+
+    return build_extract_handler(execute)(args)
 
 
 def _query_handler(
@@ -65,6 +133,8 @@ def _export_handler(args: argparse.Namespace) -> int:
 
 def build_default_handlers() -> dict[str, CommandHandler]:
     return {
+        "analyze": _analyze_handler,
+        "extract": _extract_handler,
         "export": _export_handler,
         "list": _query_handler(build_list_handler, QueryService.list_reviews),
         "show": _query_handler(build_show_handler, QueryService.show_review),
