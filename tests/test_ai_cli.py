@@ -119,6 +119,15 @@ class AiCliTests(unittest.TestCase):
         with SQLiteReviewRepository(self.database) as repository:
             return [repository.get_review(i) for i in range(1, 7)]
 
+    def insight_response(self, **kwargs):
+        body = json.loads(kwargs["messages"][1]["content"])
+        if "evidence" not in body:
+            return response({"reviews": [{"review_number": i, "complaints": [
+                {"label": "배송 지연", "quote": review["review_text"]}], "praises": []}
+                for i, review in enumerate(body["reviews"], 1)]})
+        return response(dict(INSIGHT_PAYLOAD,
+                             improvement_suggestions=body["suggestion_candidates"][:1]))
+
     def test_analyze_all_limit_skips_existing_and_saves_configured_result(self):
         self.seed()
         result = self.run_cli("analyze", "--all", "--limit", "3")
@@ -223,12 +232,14 @@ class AiCliTests(unittest.TestCase):
     def test_extract_filters_limit_and_prints_insights_without_changing_analyses(self):
         self.seed()
         before = self.read_details()
-        self.client.chat.completions.create.return_value = response(INSIGHT_PAYLOAD)
+        self.client.chat.completions.create.side_effect = self.insight_response
         result = self.run_cli("extract", "--product", "이어", "--sentiment", "negative",
                               "--date-from", "2026-09-03", "--date-to", "2026-09-05", "--limit", "1")
         self.assertEqual(result.code, 0, result.stderr)
         self.assertEqual(len(self.opened), 1)
-        self.client.chat.completions.create.assert_called_once()
+        self.assertEqual(self.client.chat.completions.create.call_count, 2)
+        for request in self.client.chat.completions.create.call_args_list:
+            self.assertEqual(request.kwargs["max_completion_tokens"], 8192)
         call = self.client.chat.completions.create.call_args
         content = json.loads(call.kwargs["messages"][1]["content"])
         self.assertEqual(content["review_count"], 1)
@@ -237,13 +248,13 @@ class AiCliTests(unittest.TestCase):
             {"keyword": "배송", "count": 1}, {"keyword": "포장", "count": 1},
         ])
         for text in ("실제 추출 대상: 분석 완료 리뷰 1건", "배송", "포장",
-                     "배송 지연", "출고 일정을 점검하세요.", INSIGHT_PAYLOAD["summary"]):
+                     "배송 지연", "발생 조건을 확인하고", INSIGHT_PAYLOAD["summary"]):
             self.assertIn(text, result.stdout)
         self.assertEqual(self.read_details(), before)
 
     def test_extract_limit_counts_only_analyzed_rows_across_pages(self):
         self.seed()
-        self.client.chat.completions.create.return_value = response(INSIGHT_PAYLOAD)
+        self.client.chat.completions.create.side_effect = self.insight_response
         with patch("src.insight_service._PAGE_SIZE", 2):
             result = self.run_cli("extract", "--limit", "2")
         self.assertEqual(result.code, 0, result.stderr)
@@ -264,8 +275,8 @@ class AiCliTests(unittest.TestCase):
             self.assertFalse(self.opened[-1]._require_connection().in_transaction)
             # A second writer can commit even with the default rollback journal.
             with sqlite3.connect(self.database, timeout=.1) as connection:
-                connection.execute("CREATE TABLE cli_snapshot_probe (id INTEGER)")
-            return response(INSIGHT_PAYLOAD)
+                connection.execute("CREATE TABLE IF NOT EXISTS cli_snapshot_probe (id INTEGER)")
+            return self.insight_response(**kwargs)
 
         self.client.chat.completions.create.side_effect = complete
         with patch.object(SQLiteReviewRepository, "list_reviews", read):
@@ -273,6 +284,7 @@ class AiCliTests(unittest.TestCase):
         self.assertEqual(result.code, 0, result.stderr)
         self.assertTrue(states)
         self.assertTrue(all(states))
+        self.assertEqual(self.client.chat.completions.create.call_count, 2)
 
     def test_extract_failure_returns_four_without_modifying_analysis_or_status(self):
         self.seed()
