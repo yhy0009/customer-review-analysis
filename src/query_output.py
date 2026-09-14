@@ -1,10 +1,10 @@
-"""Pure text presentation for the CLI's list, show, and stats commands."""
+"""Pure text presentation for the CLI query and insight commands."""
 
 import re
 import unicodedata
 from datetime import datetime
 
-from src.models import Page, ReviewDetail, ReviewStatistics, Sentiment
+from src.models import InsightResult, Page, ReviewDetail, ReviewStatistics, Sentiment
 
 
 _SENTIMENT_LABELS = {
@@ -141,4 +141,65 @@ def format_statistics(stats: ReviewStatistics) -> str:
             lines.append(label + ": " + ", ".join(
                 f"{_single_line(item.keyword)} ({item.count}건)" for item in keywords
             ))
+    return "\n".join(lines)
+
+
+
+def format_insight_result(result: InsightResult) -> str:
+    """Render the selected analyzed-review scope and terminal-safe AI insights."""
+    filters = result.filters
+    conditions = []
+    if filters.sentiment is not None:
+        conditions.append(f"감정={_SENTIMENT_LABELS[filters.sentiment]}")
+    if filters.date_from is not None or filters.date_to is not None:
+        start = filters.date_from.isoformat() if filters.date_from else "시작 제한 없음"
+        end = filters.date_to.isoformat() if filters.date_to else "종료 제한 없음"
+        conditions.append(f"기간={start} ~ {end}")
+    if filters.product_name is not None:
+        conditions.append(f"제품명 포함={_single_line(filters.product_name) or '이름 없음'}")
+    if filters.rating is not None:
+        conditions.append(f"별점={filters.rating}/5")
+    if filters.rating_min is not None:
+        conditions.append(f"최소 별점={filters.rating_min}/5")
+
+    lines = [
+        f"인사이트 생성 시각 (UTC): {_utc_text(result.generated_at)}",
+        f"실제 추출 대상: 분석 완료 리뷰 {result.review_count}건",
+        "필터: " + (", ".join(conditions) if conditions else "추가 필터 없음"),
+    ]
+    if result.review_count == 0:
+        # Ignore stale optional fields when there are no reviews behind them.
+        lines.extend(["", "조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다."])
+        return "\n".join(lines)
+
+    lines.extend(["", "키워드 빈도는 해당 키워드를 포함한 리뷰 수입니다."])
+    for label, keywords in (
+        ("긍정 키워드", result.positive_keywords),
+        ("부정 키워드", result.negative_keywords),
+    ):
+        lines.append(label + ":")
+        if keywords:
+            lines.extend(
+                f"  - {_single_line(item.keyword) or '이름 없음'}: {item.count}건"
+                for item in keywords
+            )
+        else:
+            lines.append("  집계된 키워드가 없습니다.")
+
+    summary = _safe_text(result.summary).strip()
+    lines.extend(["", "요약:"])
+    if summary:
+        lines.extend("  " + line for line in summary.splitlines())
+    else:
+        lines.append("  요약이 없습니다.")
+    for title, items in (
+        ("주요 이슈", result.issues),
+        ("개선 제안", result.improvement_suggestions),
+    ):
+        lines.extend(["", title + ":"])
+        visible_items = [text for item in items if (text := _single_line(item))]
+        if visible_items:
+            lines.extend("  - " + item for item in visible_items)
+        else:
+            lines.append("  제공된 항목이 없습니다.")
     return "\n".join(lines)
