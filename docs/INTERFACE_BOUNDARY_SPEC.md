@@ -769,3 +769,22 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   `--force`가 있으면 성공한 파일만 교체한다. 사용 중인 DB 및 관련 journal 파일은 보호한다.
 
 상세 포맷·파일명·종료 코드와 실행 예시는 [내보내기 안내](EXPORT.md)를 따른다.
+
+## 21. 인사이트 추출 구현 현황
+
+`src/insight_extractor.py`의 `AIInsightExtractor`는 기존 `InsightExtractor` Protocol을
+구현하고, `src/insight_service.py`의 `InsightService`는 `ExtractRequest`를 받아
+`InsightResult`를 반환한다. 공통 모델·Protocol과 기본 CLI 등록은 변경하지 않는다.
+
+- 조건에 맞는 분석 완료 리뷰를 ID 오름차순으로 선택한 뒤 `limit`을 적용한다.
+  `review_count`는 실제 선택 수다. 중립도 포함하며 미분석·실패는 제외한다.
+- 긍·부정 키워드는 해당 선택 집합의 저장된 키워드를 리뷰당 한 번씩 세어 상위 10개를
+  반환한다. SQLite 통계와 동일한 빈도·동률 정렬 규칙을 사용한다.
+- AI는 이슈·개선 제안·전체 요약만 생성한다. 응답 형식을 로컬 검증하고 기존 제공자
+  오류 분류에 따라 제한된 재시도를 수행한다. 개별 리뷰의 분석·상태는 쓰지 않는다.
+- SQLite 연결 시 `snapshot=repository.read_snapshot`을 주입한다. 서비스는 대상 조회를
+  스냅샷 안에서 마친 후 트랜잭션을 종료하고 AI를 호출한다.
+- 빈 대상은 API를 호출하지 않는다. 기본 24,000자 사용자 JSON 한도를 넘으면 내용을
+  자르지 않고 필터나 `limit`을 줄이도록 안내한다. 대량 입력 분할 요약은 후속 작업이다.
+
+상세 규칙과 서비스 연결·검증 방법은 [인사이트 추출 안내](INSIGHT_EXTRACTION.md)를 따른다.

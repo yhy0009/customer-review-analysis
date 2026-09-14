@@ -191,6 +191,8 @@ cp config/config_example.json config/config.json
 
 > 구현 현황: GPT-5-mini 단건 분석과 저장소 주입 방식의 배치 분석·재시도를 제공합니다.
 > [AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.
+> 조건별 키워드 집계와 AI 이슈·개선안 요약 서비스도 제공합니다.
+> 대상 선택·입력 한도·서비스 연결 방법은 [인사이트 추출 안내](docs/INSIGHT_EXTRACTION.md)에 있습니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
 > 아래 CLI 예시는 목표 사용법입니다. 분석 전용 CLI 어댑터는 구현됐으며,
 > `main.py`의 기본 저장소·서비스 생성 연결은 아직 후속 작업입니다.
