@@ -23,9 +23,11 @@ from src.models import (
     AnalyzeRequest,
     AnalyzeTarget,
     BatchOperationResult,
+    CleanBatchResult,
     CleanRequest,
     CleaningOptions,
     DashboardRequest,
+    DashboardResult,
     DuplicatePolicy,
     ExportFormat,
     ExportRequest,
@@ -48,6 +50,8 @@ from src.models import (
 )
 from src.services import ApplicationServices
 from src.query_output import (
+    format_batch_result,
+    format_dashboard_result,
     format_insight_result,
     format_review_list,
     format_review_detail,
@@ -267,16 +271,49 @@ def _adapt(
 def build_handlers(services: ApplicationServices) -> Dict[str, CommandHandler]:
     """Build the complete CLI handler map around an application service object."""
     return {
-        "import": _adapt(services.import_reviews, build_import_request),
-        "clean": _adapt(services.clean_reviews, build_clean_request),
+        "import": build_import_handler(services.import_reviews),
+        "clean": build_clean_handler(services.clean_reviews),
         "analyze": build_analyze_handler(services.analyze_reviews),
         "extract": build_extract_handler(services.extract_insights),
         "list": build_list_handler(services.list_reviews),
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
-        "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
+        "dashboard": build_dashboard_handler(services.create_dashboard),
         "export": build_export_handler(services.export_reviews),
     }
+
+
+def build_import_handler(
+    service_method: Callable[[ImportRequest], BatchOperationResult],
+) -> CommandHandler:
+    def execute(request: ImportRequest) -> BatchOperationResult:
+        result = service_method(request)
+        print(format_batch_result(result))
+        return result
+
+    return _adapt(execute, build_import_request)
+
+
+def build_clean_handler(
+    service_method: Callable[[CleanRequest], CleanBatchResult],
+) -> CommandHandler:
+    def execute(request: CleanRequest) -> CleanBatchResult:
+        result = service_method(request)
+        print(format_batch_result(result))
+        return result
+
+    return _adapt(execute, build_clean_request)
+
+
+def build_dashboard_handler(
+    service_method: Callable[[DashboardRequest], DashboardResult],
+) -> CommandHandler:
+    def execute(request: DashboardRequest) -> DashboardResult:
+        result = service_method(request)
+        print(format_dashboard_result(result))
+        return result
+
+    return _adapt(execute, build_dashboard_request)
 
 
 def build_export_handler(
@@ -352,6 +389,9 @@ def build_analyze_handler(
 
 
 __all__ = [
+    "build_import_handler",
+    "build_clean_handler",
+    "build_dashboard_handler",
     "build_extract_handler",
     "build_export_handler",
     "build_list_handler",

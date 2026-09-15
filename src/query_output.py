@@ -1,10 +1,13 @@
-"""Pure text presentation for the CLI query and insight commands."""
+"""Pure text presentation for CLI command results."""
 
 import re
 import unicodedata
 from datetime import datetime
 
-from src.models import InsightResult, Page, ReviewDetail, ReviewStatistics, Sentiment
+from src.models import (
+    BatchOperationResult, DashboardResult, InsightResult, OutputKind,
+    Page, ReviewDetail, ReviewStatistics, Sentiment,
+)
 
 
 _SENTIMENT_LABELS = {
@@ -202,4 +205,34 @@ def format_insight_result(result: InsightResult) -> str:
             lines.extend("  - " + item for item in visible_items)
         else:
             lines.append("  제공된 항목이 없습니다.")
+    return "\n".join(lines)
+
+
+def format_batch_result(result: BatchOperationResult) -> str:
+    """Show every outcome, including validation rejections, without review bodies."""
+    lines = [
+        f"processed={result.processed} succeeded={result.succeeded} "
+        f"skipped={result.skipped} failed={result.failed} rejected={result.rejected}"
+    ]
+    for error in result.errors:
+        item = _single_line(error.item_ref) if error.item_ref is not None else "-"
+        lines.append(
+            f"  [{_single_line(error.code)}] item={item}: {_single_line(error.message)}"
+        )
+    return "\n".join(lines)
+
+
+def format_dashboard_result(result: DashboardResult) -> str:
+    """Display returned artifact paths; an empty result does not claim creation."""
+    if not result.artifacts:
+        return "생성된 파일이 없습니다."
+    labels = {
+        OutputKind.CHART: "차트", OutputKind.REPORT: "리포트", OutputKind.EXPORT: "내보내기",
+    }
+    lines = [f"생성 파일: {len(result.artifacts)}개"]
+    for artifact in result.artifacts:
+        lines.append(
+            f"  {labels[artifact.kind]} ({_single_line(artifact.format)}): "
+            f"{_single_line(str(artifact.path))}"
+        )
     return "\n".join(lines)
