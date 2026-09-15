@@ -237,14 +237,14 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 ```python
 def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
     return {
-        "import": _adapt(services.import_reviews, build_import_request),
-        "clean": _adapt(services.clean_reviews, build_clean_request),
+        "import": build_import_handler(services.import_reviews),
+        "clean": build_clean_handler(services.clean_reviews),
         "analyze": build_analyze_handler(services.analyze_reviews),
         "extract": build_extract_handler(services.extract_insights),
         "list": build_list_handler(services.list_reviews),
         "show": build_show_handler(services.show_review),
         "stats": build_stats_handler(services.get_statistics),
-        "dashboard": _adapt(services.create_dashboard, build_dashboard_request),
+        "dashboard": build_dashboard_handler(services.create_dashboard),
         "export": build_export_handler(services.export_reviews),
     }
 ```
@@ -829,3 +829,27 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 - 공통 설정의 지원 필드만 AI 옵션에 전달하며 각 모듈의 내장 프롬프트 버전을 사용한다.
 
 기본 실행 사용법과 통합 테스트는 [AI CLI 실행 안내](AI_CLI.md)를 따른다.
+
+
+## 24. 수집·정제·대시보드 공통 CLI 연결 경계
+
+세 명령의 구체 서비스 구현에 앞서 공통 결과 출력과 선택적 등록 경계를 제공한다.
+기존 Request·Result·ApplicationServices·Repository Protocol과 명령별 소유권은 유지한다.
+
+- `build_import_handler`, `build_clean_handler`, `build_dashboard_handler`는 요청 생성·
+  공통 오류 처리와 함께 결과를 stdout에 표시한다. `build_handlers(services)`도 이를 사용한다.
+- `format_batch_result()`는 processed/succeeded/skipped/failed/rejected와 ItemError 상세를
+  표시한다. failed 또는 rejected가 있으면 기존 배치 계약에 따라 종료 코드 1이다.
+- `format_dashboard_result()`는 반환된 산출물의 종류·포맷·경로를 표시한다.
+  빈 목록은 파일이 생성되지 않았음을 표시하며 정상 반환(0)으로 처리한다.
+- `build_default_handlers(import_factory=None, clean_factory=None, dashboard_factory=None)`는
+  제공된 생성 함수에 해당하는 명령만 기존 기본 매핑에 추가한다. 생성 함수는
+  `(repository, config)`를 받아 기존 요청을 소비하는 서비스 메서드를 반환한다.
+- 요청 검증 후 명령별 SQLite 연결을 열고 생성 함수를 호출한다. 서비스는 연결을 빌려 쓰며
+  런타임이 성공·오류·사용자 중단 모두 연결을 닫는다. 전체 명령의 트랜잭션을 추가하지 않는다.
+- 생성 함수와 서비스를 실행할 때 발생한 ImportError는 의존성 안내와 코드 2로 처리한다.
+  기본 매핑 생성만으로 구체 기능 모듈이나 선택적 SDK를 import하지 않는다.
+
+인자 없는 기본 실행은 여전히 기존 6개 명령을 등록한다. 세 명령의 구체 서비스 생성 함수를
+시작 코드에서 공급하는 작업은 후속 통합 단계다. 자세한 연결 규약과 검증 방법은
+[수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.

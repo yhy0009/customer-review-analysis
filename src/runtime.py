@@ -6,13 +6,16 @@ imported only when analyze or extract executes, after request validation.
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 
 from src.cli import CommandHandler
 from src.errors import ConfigError, OutputError
 from src.export_service import ExportService
 from src.handlers import (
     build_analyze_handler,
+    build_clean_handler,
+    build_dashboard_handler,
+    build_import_handler,
     build_extract_handler,
     build_export_handler,
     build_list_handler,
@@ -23,6 +26,12 @@ from src.models import (
     AnalysisBatchResult,
     AnalysisOptions,
     AnalyzeRequest,
+    BatchOperationResult,
+    CleanBatchResult,
+    CleanRequest,
+    DashboardRequest,
+    DashboardResult,
+    ImportRequest,
     ExportRequest,
     ExportResult,
     ExtractRequest,
@@ -30,6 +39,16 @@ from src.models import (
 )
 from src.query_service import QueryService
 from src.sqlite_repository import SQLiteReviewRepository
+from src.storage import ReviewRepository
+
+
+RequestT = TypeVar("RequestT")
+ResultT = TypeVar("ResultT")
+# A factory wires a command to this invocation's repository and loaded config.
+# It returns a bound service method accepting the existing request dataclass.
+ServiceFactory = Callable[
+    [ReviewRepository, Mapping[str, Any]], Callable[[RequestT], ResultT]
+]
 
 
 def _ai_options(config: Mapping[str, Any]) -> AnalysisOptions:
@@ -133,8 +152,42 @@ def _export_handler(args: argparse.Namespace) -> int:
     return build_export_handler(execute)(args)
 
 
-def build_default_handlers() -> dict[str, CommandHandler]:
-    return {
+def _pipeline_handler(
+    handler_factory: Callable[[Callable[[RequestT], ResultT]], CommandHandler],
+    service_factory: ServiceFactory[RequestT, ResultT],
+) -> CommandHandler:
+    def handler(args: argparse.Namespace) -> int:
+        def execute(request: RequestT) -> ResultT:
+            # Request validation happens in the adapter before opening the DB.
+            # The service borrows this connection; this context owns its lifetime.
+            with SQLiteReviewRepository.from_config(args.app_config) as repository:
+                try:
+                    operation = service_factory(repository, args.app_config)
+                    return operation(request)
+                except ImportError:
+                    raise ConfigError(
+                        f"'{args.command}' 명령 실행에 필요한 패키지를 불러올 수 없습니다. "
+                        "requirements.txt의 의존성을 확인하세요."
+                    ) from None
+
+        return handler_factory(execute)(args)
+
+    return handler
+
+
+def build_default_handlers(
+    *,
+    import_factory: ServiceFactory[ImportRequest, BatchOperationResult] | None = None,
+    clean_factory: ServiceFactory[CleanRequest, CleanBatchResult] | None = None,
+    dashboard_factory: ServiceFactory[DashboardRequest, DashboardResult] | None = None,
+) -> dict[str, CommandHandler]:
+    """Keep default commands and register only the supplied pipeline services.
+
+    Factories run lazily after argument validation with a fresh repository and
+    the loaded config. They return one service method, not a full application.
+    Omitted factories keep that command unconnected (exit code 2).
+    """
+    handlers = {
         "analyze": _analyze_handler,
         "extract": _extract_handler,
         "export": _export_handler,
@@ -142,3 +195,11 @@ def build_default_handlers() -> dict[str, CommandHandler]:
         "show": _query_handler(build_show_handler, QueryService.show_review),
         "stats": _query_handler(build_stats_handler, QueryService.get_statistics),
     }
+    for name, factory, adapter in (
+        ("import", import_factory, build_import_handler),
+        ("clean", clean_factory, build_clean_handler),
+        ("dashboard", dashboard_factory, build_dashboard_handler),
+    ):
+        if factory is not None:
+            handlers[name] = _pipeline_handler(adapter, factory)
+    return handlers
