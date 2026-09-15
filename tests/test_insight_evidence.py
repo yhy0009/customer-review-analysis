@@ -82,16 +82,24 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(provider.complete.call_args_list[1].args, provider.complete.call_args_list[2].args)
         sleep.assert_called_once_with(1.0)
 
-    def test_evidence_too_large_fails_explicitly_before_narrative(self):
+    def test_large_evidence_preserves_all_topics_beyond_summary_budget(self):
         findings = [{"label": str(i).zfill(20), "quote": "잡음"} for i in range(13)]
         provider = Mock()
-        provider.complete.return_value = ProviderResponse(json.dumps({"reviews": [
-            {"review_number": 1, "complaints": findings, "praises": []}]}), "fake")
+        def reply(messages, schema, options):
+            if "reviews" in schema["properties"]:
+                return ProviderResponse(json.dumps({"reviews": [
+                    {"review_number": 1, "complaints": findings, "praises": []}]}), "fake")
+            request = json.loads(messages[1]["content"])
+            return ProviderResponse(json.dumps({"issues": request["issue_candidates"],
+                "improvement_suggestions": [], "summary": "주요 불편 요약"}), "fake")
+        provider.complete.side_effect = reply
         options = AnalysisOptions(provider="fake", model="fake", timeout_seconds=5, max_retries=0)
-        with self.assertRaisesRegex(ValidationError, "limit"):
-            AIInsightExtractor(options, provider).extract_insights(
-                [detail(1, Sentiment.NEGATIVE, review_text="잡음")], ReviewFilter())
-        self.assertEqual(provider.complete.call_count, 1)
+        result = AIInsightExtractor(options, provider).extract_insights(
+            [detail(1, Sentiment.NEGATIVE, review_text="잡음")], ReviewFilter())
+        self.assertEqual(len(result.evidence_groups), 13)
+        self.assertEqual(len(result.issues), 3)
+        self.assertEqual(result.summary_scope, "top_complaints")
+        self.assertEqual(provider.complete.call_count, 2)
 
     def test_augmented_input_budget_is_checked_before_second_request(self):
         provider = Mock()

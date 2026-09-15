@@ -117,7 +117,8 @@ class _MeasuredProvider:
 
     def complete(self, messages, schema, options):
         started = time.monotonic()
-        entry = {"stage": "analysis" if "sentiment" in schema["properties"] else (
+        entry = {"request_sha256": hashlib.sha256(messages[1]["content"].encode()).hexdigest(),
+                 "stage": "analysis" if "sentiment" in schema["properties"] else (
                      "evidence" if "reviews" in schema["properties"] else "insight"),
                  "status": "error"}
         try:
@@ -126,6 +127,7 @@ class _MeasuredProvider:
             if entry["stage"] == "evidence":
                 try:
                     entry["evidence"] = parse_evidence(response.content, json.loads(messages[1]["content"])["reviews"])
+                    entry["evidence_valid"] = True
                 except AIProviderError:
                     entry["evidence_valid"] = False
                     # Evaluation uses synthetic fixtures. Preserve rejected model

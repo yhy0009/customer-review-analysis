@@ -1,4 +1,4 @@
-"""Evaluate fixed synthetic reviews; --live permits at most N+2 requests, no retries."""
+"""Evaluate fixed synthetic reviews; --live permits at most N+101 requests (100 evidence batches + summary), no retries."""
 
 import argparse
 import json

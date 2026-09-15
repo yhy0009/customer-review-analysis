@@ -104,3 +104,19 @@ class InsightComparisonTests(unittest.TestCase):
         self.assertIsNone(result["same_input"])
         self.assertEqual(len(result["runs"]), 1)
         self.assertEqual(self.provider.complete.call_count, 2)
+
+    def test_batched_comparison_compares_source_not_first_batch(self):
+        from tests.test_insight_batching import reply
+        def complete(messages, schema, options):
+            body = json.loads(messages[1]["content"])
+            if "reviews" in schema["properties"] or "issue_candidates" in body:
+                return reply(messages, schema, options)
+            return self.provider.complete.return_value
+        self.provider.complete.side_effect = complete
+        result = compare(DATASET, self.saved, self.root / "batch-pair", self.options,
+                         provider=self.provider, batch_size=3)
+        self.assertTrue(result["same_input"])
+        self.assertTrue(result["completed"])
+        self.assertEqual(self.provider.complete.call_count, 5)
+        hashes = [call["request_sha256"] for call in result["calls"]]
+        self.assertNotEqual(hashes[0], hashes[1])
