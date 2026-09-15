@@ -186,6 +186,8 @@ cp config/config_example.json config/config.json
 현재 `main.py`의 기본 실행은 **`analyze`, `extract`, `list`, `show`, `stats`, `export`**를 지원합니다.
 설정된 SQLite의 정제 리뷰를 분석하고 인사이트 추출·조회·내보내기를 수행합니다.
 `import`, `clean`, `dashboard`는 아래 사용 형식을 정의한 상태이며 기본 실행 연결은 후속 작업입니다.
+세 명령의 공통 결과 출력과 서비스 주입용 등록 경계는 준비되어 있습니다.
+기능 담당자의 서비스 연결 방법은 [수집·정제·대시보드 CLI 연결 안내](docs/CLI_PIPELINE_INTEGRATION.md)를 참고하세요.
 조회 필터와 경로 규칙은 [조회 CLI 안내](docs/QUERY_CLI.md), 파일 포맷과 덮어쓰기 규칙은
 [내보내기 안내](docs/EXPORT.md)를 참고하세요.
 분석·추출 명령의 설정, 출력과 종료 코드는 [AI CLI 실행 안내](docs/AI_CLI.md)에 있습니다.
