@@ -16,6 +16,7 @@ from src.errors import AppError, ValidationError
 from src.evaluation import _MeasuredProvider, _save, _unique_object, load_dataset
 from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, _keywords, _parse_response
 from src.insight_evidence import EVIDENCE_PROMPT
+from src.insight_batching import COMPACT_PROMPT
 from src.models import AnalysisOptions, AnalysisResult, CleanReview, InsightResult, ReviewDetail, ReviewFilter, Sentiment
 
 
@@ -96,6 +97,7 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
         try:
             if version == PROMPT_VERSION:
                 entry["evidence_prompt"] = EVIDENCE_PROMPT
+                entry["compact_prompt"] = COMPACT_PROMPT
                 insight = AIInsightExtractor(options, ReplayProvider(), batch_size=batch_size).extract_insights(details, ReviewFilter())
             else:
                 positive = _keywords(details, Sentiment.POSITIVE)

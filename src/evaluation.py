@@ -118,6 +118,7 @@ class _MeasuredProvider:
     def complete(self, messages, schema, options):
         started = time.monotonic()
         entry = {"request_sha256": hashlib.sha256(messages[1]["content"].encode()).hexdigest(),
+                 "system_prompt_sha256": hashlib.sha256(messages[0]["content"].encode()).hexdigest(),
                  "stage": "analysis" if "sentiment" in schema["properties"] else (
                      "evidence" if "reviews" in schema["properties"] else "insight"),
                  "status": "error"}

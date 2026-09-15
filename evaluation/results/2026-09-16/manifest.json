@@ -1,0 +1,16 @@
+{
+  "source_evaluation_sha256": "111f36ac9dd7326e51af64f4395bfcb67ac7df6a5172981f1fc0f8e03b1d2484",
+  "feature_commit": "4eb1384",
+  "live_requests": 8,
+  "classification_reused": true,
+  "narrative_review": "pending",
+  "evidence_prompt_sha256": "593f904e892a15345db6a4bf85da831513cf91dbe86d59b1fe6b6af00c8e38f9",
+  "compact_prompt_sha256": "7be409091f0c3609500b60790fe6327cea6a40afadedb70204f4621532669a0d",
+  "note": "Live files precede per-call system_prompt_sha256 logging. Prompt hashes above identify the source prompts used.",
+  "files": {
+    "quality-gate-example.json": "5d012cbf73e950e45bf00dd9d65af13d81897be2e357ea914be0bb97bab279ab",
+    "v5-batch4-report.md": "9ba372b4f7067cde384a15bf85dbe8d9e84bd3762b78dd29dc6520d50fa71362",
+    "v5-batch4-success.json": "b8f65f67465812c9811e3804537a2bc395adf98067f4799ecef694feacd6df19",
+    "v5-batch8-failed.json": "9c0829fa5fd83c38e0bb4f623662c829b895f176b5bffda497889c3e65b894ba"
+  }
+}

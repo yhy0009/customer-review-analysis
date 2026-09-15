@@ -120,3 +120,6 @@ class InsightComparisonTests(unittest.TestCase):
         self.assertEqual(self.provider.complete.call_count, 5)
         hashes = [call["request_sha256"] for call in result["calls"]]
         self.assertNotEqual(hashes[0], hashes[1])
+        import hashlib
+        self.assertEqual(result["calls"][-1]["system_prompt_sha256"],
+                         hashlib.sha256(result["runs"][-1]["compact_prompt"].encode()).hexdigest())
