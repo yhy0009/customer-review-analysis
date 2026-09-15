@@ -111,6 +111,35 @@ class InsightServiceTests(unittest.TestCase):
             self.service.extract_insights(ExtractRequest(ReviewFilter()))
         self.provider.complete.assert_not_called()
 
+    def test_batched_snapshot_release_provenance_and_failure_preserve_database(self):
+        from tests.test_insight_batching import reply
+        self.seed()
+        before = [self.repo.get_review(i) for i in range(1, 7)]
+        def complete(messages, schema, options):
+            with sqlite3.connect(self.path, timeout=.1) as writer:
+                writer.execute("CREATE TABLE IF NOT EXISTS snapshot_probe (id INTEGER)")
+            return reply(messages, schema, options)
+        self.provider.complete.side_effect = complete
+        service = InsightService(self.repo, AIInsightExtractor(self.options, self.provider, batch_size=1),
+                                 snapshot=self.repo.read_snapshot)
+        result = service.extract_insights(ExtractRequest(ReviewFilter()))
+        ids = {c.review_id for g in result.evidence_groups for c in g.citations}
+        self.assertEqual(ids, {3, 4, 5})  # factual review 6 has no finding
+        self.assertEqual(result.review_count, 4)
+        self.assertEqual(result.negative_keywords, self.repo.get_statistics().top_negative_keywords)
+        self.assertEqual(self.provider.complete.call_count, 5)
+        self.assertEqual([self.repo.get_review(i) for i in range(1, 7)], before)
+        self.provider.complete.reset_mock()
+        def fail_second(messages, schema, options):
+            if self.provider.complete.call_count == 2:
+                raise AIProviderError("private")
+            return complete(messages, schema, options)
+        self.provider.complete.side_effect = fail_second
+        with self.assertRaises(AIProviderError):
+            service.extract_insights(ExtractRequest(ReviewFilter()))
+        self.assertEqual(self.provider.complete.call_count, 2)
+        self.assertEqual([self.repo.get_review(i) for i in range(1, 7)], before)
+
     def test_snapshot_is_released_before_provider_call(self):
         self.seed()
         response = self.provider.complete.return_value

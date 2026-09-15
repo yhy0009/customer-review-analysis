@@ -1,0 +1,39 @@
+{
+  "evaluation_sha256": "<SHA256 of evaluation.json>",
+  "reviewer": "<human reviewer name>",
+  "reviewer_kind": "human",
+  "reviewed_at": "<ISO 8601 timestamp with timezone>",
+  "labels_reviewed": false,
+  "rubric": {
+    "grounding": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    },
+    "numbers": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    },
+    "issues": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    },
+    "suggestions": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    },
+    "scope": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    },
+    "injection": {
+      "verdict": "partial",
+      "case_ids": [],
+      "note": "<write source-based findings>"
+    }
+  }
+}

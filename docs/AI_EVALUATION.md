@@ -34,7 +34,7 @@ python scripts/evaluate_ai.py --live --dataset evaluation/reviews.validation.v1.
 향후 llama-server에서도 같은 세트·버전·조건을 사용해 비교한다. 모델 이름 변경만으로
 해당 서버의 모델 지원 여부가 보장되지는 않는다.
 
-- N건의 단건 분석과 근거 추출·인사이트 각 1회를 순차 실행한다. 기본 18건 세트는 최대 20회다.
+- N건의 단건 분석과 B개 근거 배치·최종 요약 1회를 순차 실행한다. 기본 18건 세트는 한 배치일 때 최대 20회다.
 - 재시도는 0으로 고정한다. 호출 시간이 설정의 timeout을 넘으면 실패로 기록한다.
 - 출력 폴더에 평가용 `reviews.sqlite`를 새로 생성한다. 앱의 DB 경로 설정은 사용하지 않는다.
 - 이미 존재하는 출력 폴더를 거부하며 이전 결과를 재사용하지 않는다.
@@ -95,7 +95,7 @@ python -m unittest discover -s tests -v
 
 추가 검증의 원문과 기준은 [검증 사례 v1](../evaluation/VALIDATION_V1.md)에 고정했다.
 `scripts/compare_insights.py`는 성공한 기존 평가의 원문·감정·키워드를 재사용해 보존된
-`review-insights-v2` 단일 요청과 현재 v4의 근거·요약 두 단계를 비교한다. DB나 감정 분석은 다시 실행하지
+`review-insights-v2` 단일 요청과 현재 v5의 근거 배치·요약을 비교한다. DB나 감정 분석은 다시 실행하지
 않는다. 원본 데이터 해시, 사례 내용과 성공 상태가 일치해야 한다.
 
 ```bash
@@ -106,7 +106,7 @@ python scripts/compare_insights.py --live \
   --output /tmp/cra-validation-comparison-001
 ```
 
-비교도 새 출력 폴더만 허용하며 재시도 없이 최대 3회 요청한다. `comparison.json`에는
+비교도 새 출력 폴더만 허용하며 재시도 없이 기존 v2 1회 + B개 근거 배치 + 요약 1회를 요청한다(기본 최대 102회). `comparison.json`에는
 시스템 프롬프트 원문, 같은 원본 입력인지 확인할 해시, 사용한 평가 결과 파일의 해시,
 모델·설정·시각·응답·오류 유형이 남는다. 저장된 평가의 분석 모델은 원본 파일에서 확인하고,
 이번 인사이트 요청 모델과 구분한다. 비교에 실패한 응답도 보존하며 기존 결과는 변경하지 않는다.
@@ -116,15 +116,34 @@ python scripts/compare_insights.py --live \
 
 실제 비교 결과와 남은 누락·가정 문제는 [v2 비교 기록](../evaluation/INSIGHT_V2_COMPARISON.md)에 있다.
 
-현재 흐름만 재실행하려면 `--current-only`를 추가한다(최대 2회). 이때 `same_input=null`이며
+현재 흐름만 재실행하려면 `--current-only`를 추가한다(근거 배치 B회 + 요약 1회, 기본 최대 101회). 이때 `same_input=null`이며
 짝 비교를 수행했다고 표시하지 않는다. `--case-id bp01`처럼 지정하면 저장된 사례 중 해당
 ID만 선택하며, 여러 번 지정할 수 있다. 실제 선택은 원본 순서를 유지하고 결과의 `case_ids`에
 남긴다. 알 수 없는 ID나 중복 ID는 호출 전에 거부한다.
 
-v4의 첫 요청은 기존 흐름과 같은 원문·감정·키워드가 들어간다. 두 번째 요청에는 검증한
+한 배치의 전체 근거 경로에서는 기존 흐름과 같은 원문·감정·키워드가 들어간다. 최종 요청에는 검증한
 근거와 코드가 만든 개선 제안 후보가 추가된다. `same_input=true`는 원본 입력의 일치를
 의미하며 모든 요청·스키마가 동일하다는 뜻이 아니다. `--timeout-seconds`는 해당 평가에만
 적용하는 명시적 요청 제한이다. 실패를 지우거나 같은 출력 폴더를 덮어쓰지 않는다.
 
 추가 [6건의 실행 전 기준](../evaluation/VALIDATION_V2.md), 실패를 포함한 전체 시도와 최종
 품질 검토는 [v4 검증 결과](../evaluation/INSIGHT_V4_COMPARISON.md)에 기록했다.
+
+## v5 분할 평가 및 품질 판정
+
+현재 추출은 최대 20건/24,000자씩 분할하고 기본 100배치까지 허용한다.
+전체 평가 요청 상한은 N(분류) + 101(추출)이며 재시도는 0이다. 기존 18건처럼 한 배치에
+들어가는 입력은 여전히 N+2회다. `compare_insights.py --batch-size 8`로 같은 저장 분석을
+작게 나눠 검증할 수 있다. 비교의 `input_sha256`/`same_input`은 **분할 전 전체 선택 입력**을
+대조하며, 실제 요청별 해시는 `calls[].request_sha256`에 따로 남긴다.
+`same_input=true`가 요청 구조까지 같다는 뜻은 아니다.
+
+반환된 `insight.evidence_groups`에서 DB 내부 ID와 인용을 확인할 수 있다. 이 평가 도구의
+내부 ID는 고정 cases 순서의 1부터 시작하는 번호이며, `rows[id - 1].id`가 검토용 case ID다.
+기대 라벨과 검토 결과는 모델 입력에 포함하지 않는다.
+
+저장된 평가를 네트워크 호출 없이 판정하는 방법은 [품질 판정 안내](AI_QUALITY_GATE.md)를
+참고한다. 정책 파일을 명시해야 실행되며, 예시 정책은 팀 승인된 품질 기준이 아니다.
+
+요청별 시스템 프롬프트 해시는 `calls[].system_prompt_sha256`으로 구분한다.
+실제 v5 실행·실패·리포트 검증 기록은 [BATCHING_V5.md](../evaluation/BATCHING_V5.md)에 있다.

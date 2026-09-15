@@ -208,12 +208,24 @@ class FileReportGenerator:
                 lines.append("조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다.")
             else:
                 lines.append(_text(insight.summary, markdown) if insight.summary.strip() else "요약이 없습니다.")
+                if insight.summary_scope == "top_complaints":
+                    lines.append("요약 범위: 리뷰 수 기준 주요 불편 최대 3개와 장점 최대 1개. 전체 근거는 아래 목록에 보존됩니다.")
                 for title, items in (("주요 이슈", insight.issues), ("개선 제안", insight.improvement_suggestions)):
                     lines.extend(["", "### " + title if markdown else title, ""])
                     lines.extend(["- " + _text(item, markdown) for item in items] if items else ["제공된 항목이 없습니다."])
                 keywords(f"추출 대상 긍정 리뷰의 키워드 TOP {self.top_n}", insight.positive_keywords)
                 keywords(f"추출 대상 부정 리뷰의 키워드 TOP {self.top_n}", insight.negative_keywords)
                 lines.extend(["", "개선 제안은 AI가 생성한 검토 항목이며 효과가 검증된 결론은 아닙니다."])
+                if insight.evidence_groups:
+                    heading("전체 인사이트 근거")
+                    lines.append("제품별 주제입니다. 같은 리뷰의 중복 언급은 리뷰 수에 한 번만 포함합니다. 인용 존재는 의미적 정확성 보장이 아닙니다.")
+                    for number, group in enumerate(insight.evidence_groups, 1):
+                        kind = "불편" if group.kind == "complaints" else "장점"
+                        lines.extend(["", f"- 근거 주제 {number}: " + _text(
+                            f"{group.product_name} / {kind} / {group.label} ({group.review_count}건)", markdown)])
+                        for citation in group.citations:
+                            lines.append(f"  - 리뷰 {citation.review_id}: " + _text(
+                                f"{citation.label} — {citation.quote}", markdown))
         return "\n".join(lines) + "\n"
 
 

@@ -176,6 +176,16 @@ def format_insight_result(result: InsightResult) -> str:
         return "\n".join(lines)
 
     lines.extend(["", "키워드 빈도는 해당 키워드를 포함한 리뷰 수입니다."])
+    if result.summary_scope == "top_complaints":
+        lines.append("요약 범위: 리뷰 수 기준 주요 불편 최대 3개와 장점 최대 1개. 전체 근거는 아래 목록에 보존됩니다.")
+    if result.evidence_groups:
+        lines.append("전체 인사이트 근거:")
+        for number, group in enumerate(result.evidence_groups, 1):
+            kind = "불편" if group.kind == "complaints" else "장점"
+            lines.append(f"  근거 주제 {number}: {_single_line(group.product_name)} / {kind} / "
+                         f"{_single_line(group.label)} ({group.review_count}건)")
+            for citation in group.citations:
+                lines.append(f"    리뷰 {citation.review_id}: {_single_line(citation.label)} — {_single_line(citation.quote)}")
     for label, keywords in (
         ("긍정 키워드", result.positive_keywords),
         ("부정 키워드", result.negative_keywords),

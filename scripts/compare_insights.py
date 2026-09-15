@@ -16,18 +16,21 @@ from src.errors import AppError, ValidationError
 from src.evaluation import _MeasuredProvider, _save, _unique_object, load_dataset
 from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, _keywords, _parse_response
 from src.insight_evidence import EVIDENCE_PROMPT
+from src.insight_batching import COMPACT_PROMPT
 from src.models import AnalysisOptions, AnalysisResult, CleanReview, InsightResult, ReviewDetail, ReviewFilter, Sentiment
 
 
 ARCHIVED_PROMPT = Path(__file__).resolve().parents[1] / "evaluation/prompts/review-insights-v2.txt"
 
 
-def compare(dataset_path, saved_path, output, options, *, provider=None, case_ids=None, current_only=False):
-    """Three calls at most: archived v2 once, current evidence + narrative twice.
+def compare(dataset_path, saved_path, output, options, *, provider=None, case_ids=None, current_only=False, batch_size=20):
+    """Archived v2 once; current evidence batches plus one narrative (no retries).
 
     Only accepts complete successful evaluation rows matching the frozen dataset.
     No DB is opened, no classification is rerun and no source file is overwritten.
     """
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValidationError("batch_size must be a positive integer")
     dataset = load_dataset(dataset_path)
     try:
         raw = saved_path.read_bytes()
@@ -70,22 +73,32 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
               "timeout_seconds": options.timeout_seconds, "reasoning_effort": options.reasoning_effort,
               "started_at": now.isoformat(), "narrative_review": "pending", "runs": [],
               "calls": measured.calls}
+    source_input = json.dumps({"review_count": len(details),
+        "positive_keywords": [asdict(k) for k in _keywords(details, Sentiment.POSITIVE)],
+        "negative_keywords": [asdict(k) for k in _keywords(details, Sentiment.NEGATIVE)],
+        "reviews": [{"product_name": d.review.product_name, "rating": d.review.rating,
+                     "review_text": d.review.review_text, "sentiment": d.analysis.sentiment.value}
+                    for d in details]}, ensure_ascii=False)
+    result["batch_size"] = batch_size
     checkpoint = output / "comparison.json"
     _save(checkpoint, result)
     for version, prompt in prompts.items():
-        entry = {"prompt_version": version, "system_prompt": prompt, "status": "running"}
+        entry = {"prompt_version": version, "system_prompt": prompt, "status": "running",
+                 "input_sha256": hashlib.sha256(source_input.encode()).hexdigest()}
         result["runs"].append(entry)
 
         class ReplayProvider:
             def complete(self, messages, schema, call_options):
-                # Compare the original source input, before the new evidence pass.
-                entry.setdefault("input_sha256", hashlib.sha256(messages[1]["content"].encode()).hexdigest())
-                return measured.complete(messages, schema, call_options)
+                try:
+                    return measured.complete(messages, schema, call_options)
+                finally:
+                    _save(checkpoint, result)
 
         try:
             if version == PROMPT_VERSION:
                 entry["evidence_prompt"] = EVIDENCE_PROMPT
-                insight = AIInsightExtractor(options, ReplayProvider()).extract_insights(details, ReviewFilter())
+                entry["compact_prompt"] = COMPACT_PROMPT
+                insight = AIInsightExtractor(options, ReplayProvider(), batch_size=batch_size).extract_insights(details, ReviewFilter())
             else:
                 positive = _keywords(details, Sentiment.POSITIVE)
                 negative = _keywords(details, Sentiment.NEGATIVE)
@@ -121,7 +134,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True, help="New directory; contains comparison.json")
     parser.add_argument("--case-id", action="append", help="Select specific frozen case IDs; repeat for multiple cases")
     parser.add_argument("--timeout-seconds", type=int, help="Explicit per-request timeout for this evaluation only")
-    parser.add_argument("--current-only", action="store_true", help="Replay current pipeline only; at most two requests")
+    parser.add_argument("--batch-size", type=int, default=20, help="Maximum reviews per evidence request")
+    parser.add_argument("--current-only", action="store_true", help="Replay evidence batches and one narrative; at most 101 requests")
     args = parser.parse_args()
     try:
         load_env_file()
@@ -130,7 +144,7 @@ def main():
             options = replace(options, timeout_seconds=args.timeout_seconds)
         result = compare(resolve_project_path(args.dataset), resolve_project_path(args.saved_evaluation),
                          resolve_project_path(args.output), options,
-                         case_ids=args.case_id, current_only=args.current_only)
+                         case_ids=args.case_id, current_only=args.current_only, batch_size=args.batch_size)
         print(json.dumps({"completed": result["completed"], "same_input": result["same_input"],
                           "calls": len(result["calls"]), "narrative_review": result["narrative_review"]}))
         return 0 if result["completed"] else 1

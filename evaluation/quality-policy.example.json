@@ -1,0 +1,12 @@
+{
+  "version": "example-v1-not-team-approved",
+  "dataset_sha256": "88f1d4641130b0a8a8d295853982c049b987a4f4aa87498cf6e1a60f45efdb63",
+  "minimums": {
+    "accuracy_all": 0.8,
+    "macro_f1": 0.75,
+    "valid_ratio": 1.0
+  },
+  "max_analysis_p95_seconds": 90,
+  "max_regression": null,
+  "require_human_review": true
+}
