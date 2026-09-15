@@ -1,4 +1,4 @@
-"""Opt-in insight connectivity check: one request with synthetic analyzed reviews."""
+"""Opt-in insight connectivity check: two requests with synthetic analyzed reviews."""
 
 import argparse
 import json
@@ -18,7 +18,7 @@ from src.models import AnalysisOptions, AnalysisResult, CleanReview, ReviewDetai
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--live", action="store_true", help="Allow one billable API request; no retries")
+    parser.add_argument("--live", action="store_true", help="Allow up to two billable API requests; no retries")
     args = parser.parse_args()
     if not args.live:
         parser.error("실제 API 호출에는 --live가 필요합니다.")

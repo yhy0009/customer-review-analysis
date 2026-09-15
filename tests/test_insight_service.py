@@ -18,6 +18,7 @@ from src.models import (
     RawReview, ReviewFilter, Sentiment,
 )
 from src.storage import SQLiteReviewRepository
+from tests.insight_fixtures import staged_reply
 
 
 class InsightServiceTests(unittest.TestCase):
@@ -32,6 +33,8 @@ class InsightServiceTests(unittest.TestCase):
             "issues": ["배송 지연"], "improvement_suggestions": ["출고 일정을 점검하세요."],
             "summary": "일부 리뷰에서 배송 불편이 보고됩니다.",
         }), "test")
+        self.provider.complete.side_effect = lambda messages, schema, options: staged_reply(
+            messages, schema, self.provider.complete.return_value)
         self.options = AnalysisOptions(provider="fake", model="test", timeout_seconds=10, max_retries=0)
         self.extractor = AIInsightExtractor(self.options, self.provider)
         self.service = InsightService(self.repo, self.extractor, snapshot=self.repo.read_snapshot)
@@ -115,7 +118,7 @@ class InsightServiceTests(unittest.TestCase):
             # A second SQLite connection can commit even in rollback-journal mode.
             with SQLiteReviewRepository(self.path) as writer:
                 writer.save_raw_reviews([RawReview(source_review_id="new")], DuplicatePolicy.SKIP)
-            return response
+            return staged_reply(args[0], args[1], response)
         self.provider.complete.side_effect = complete
         self.assertEqual(self.service.extract_insights(ExtractRequest(ReviewFilter())).review_count, 4)
         self.assertEqual(len(self.repo.fetch_raw_reviews()), 7)

@@ -11,7 +11,9 @@ from openai import OpenAI
 
 from src.ai_provider import AnalysisProvider, NonRetryableAIError, ProviderResponse
 from src.errors import AIProviderError, ConfigError, ValidationError
-from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA
+from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION
+from src.insight_evidence import EVIDENCE_SCHEMA
+from tests.insight_fixtures import evidence_reply, staged_reply
 from src.models import AnalysisOptions, AnalysisResult, CleanReview, ReviewDetail, ReviewFilter, Sentiment
 
 
@@ -34,6 +36,8 @@ class InsightExtractorTests(unittest.TestCase):
                         "summary": "배송 경험에 대한 평가가 엇갈립니다."}
         self.provider = Mock(spec=AnalysisProvider)
         self.provider.complete.return_value = self.response()
+        self.provider.complete.side_effect = lambda messages, schema, options: staged_reply(
+            messages, schema, self.provider.complete.return_value)
         self.sleep = Mock()
         self.extractor = AIInsightExtractor(self.options, self.provider, sleep=self.sleep)
         self.review = detail(1)
@@ -96,7 +100,8 @@ class InsightExtractorTests(unittest.TestCase):
         self.assertNotIn("private-source", str(messages))
         self.assertEqual(set(json.loads(messages[1]["content"])["reviews"][0]),
                          {"product_name", "rating", "review_text", "sentiment"})
-        self.assertEqual(schema, INSIGHT_SCHEMA)
+        self.assertEqual(set(schema["properties"]), set(INSIGHT_SCHEMA["properties"]))
+        self.assertIn("enum", schema["properties"]["improvement_suggestions"]["items"])
         self.assertEqual(options, self.options)
 
     def test_invalid_input_fails_before_provider(self):
@@ -109,9 +114,16 @@ class InsightExtractorTests(unittest.TestCase):
             self.extractor.extract_insights(["invalid"], ReviewFilter())
         with self.assertRaises(ValidationError):
             self.extractor.extract_insights([self.review], None)
-        with self.assertRaises(ConfigError):
-            AIInsightExtractor(replace(self.options, prompt_version="review-sentiment-v1"), self.provider)
+        for version in ("review-sentiment-v1", "review-insights-v1", "review-insights-v2", "review-insights-v3"):
+            with self.subTest(version=version), self.assertRaises(ConfigError):
+                AIInsightExtractor(replace(self.options, prompt_version=version), self.provider)
         self.provider.complete.assert_not_called()
+
+    def test_explicit_current_prompt_version_is_accepted(self):
+        options = replace(self.options, prompt_version=PROMPT_VERSION)
+        result = AIInsightExtractor(options, self.provider).extract_insights([self.review], ReviewFilter())
+        self.assertEqual(result.review_count, 1)
+        self.assertEqual(self.provider.complete.call_args.args[2].prompt_version, PROMPT_VERSION)
 
     def test_input_budget_rejects_without_silent_truncation(self):
         extractor = AIInsightExtractor(self.options, self.provider, max_input_chars=100)
@@ -120,11 +132,13 @@ class InsightExtractorTests(unittest.TestCase):
         self.provider.complete.assert_not_called()
 
     def test_trims_deduplicates_narrative_and_allows_no_issues(self):
-        self.provider.complete.return_value = self.response({"issues": [],
+        self.provider.complete.return_value = self.response({"issues": [" 배송 지연 ", "배송 지연"],
             "improvement_suggestions": [" 점검 권장 ", "점검 권장"], "summary": " 만족함 "})
         result = self.extractor.extract_insights([self.review], ReviewFilter())
-        self.assertEqual(result.issues, [])
-        self.assertEqual(result.improvement_suggestions, ["점검 권장"])
+        self.assertEqual(result.issues, ["배송 지연"])
+        self.assertEqual(len(result.improvement_suggestions), 1)
+        self.assertIn(result.improvement_suggestions[0], json.loads(
+            self.provider.complete.call_args.args[0][1]["content"])["suggestion_candidates"])
         self.assertEqual(result.summary, "만족함")
 
     def test_invalid_output_is_rejected_and_never_leaked(self):
@@ -145,11 +159,14 @@ class InsightExtractorTests(unittest.TestCase):
                 self.assertNotIn("secret-response", str(error.exception))
 
     def test_transient_and_invalid_json_retry_then_succeed(self):
-        self.provider.complete.side_effect = [AIProviderError("private"), ProviderResponse("bad", "test"), self.response()]
+        evidence = ProviderResponse(json.dumps({"reviews": [{"review_number": 1,
+            "complaints": [{"label": "배송 지연", "quote": "배송이 빨라요."}], "praises": []}]}), "test")
+        final = self.response(dict(self.payload, improvement_suggestions=[]))
+        self.provider.complete.side_effect = [AIProviderError("private"), ProviderResponse("bad", "test"), evidence, final]
         extractor = AIInsightExtractor(replace(self.options, max_retries=2), self.provider, sleep=self.sleep)
         self.assertEqual(extractor.extract_insights([self.review], ReviewFilter()).review_count, 1)
         self.assertEqual([c.args[0] for c in self.sleep.call_args_list], [1., 2.])
-        self.assertEqual(self.provider.complete.call_count, 3)
+        self.assertEqual(self.provider.complete.call_count, 4)
 
     def test_terminal_and_config_errors_do_not_retry(self):
         extractor = AIInsightExtractor(replace(self.options, max_retries=3), self.provider, sleep=self.sleep)
@@ -175,23 +192,30 @@ class InsightExtractorTests(unittest.TestCase):
                 requests = []
                 def handler(request):
                     requests.append(request)
+                    payload = json.loads(request.content)
+                    is_evidence = '"review_number"' in payload["messages"][0]["content"] or (
+                        "reviews" in payload.get("response_format", {}).get("json_schema", {}).get("schema", {}).get("properties", {}))
+                    response = evidence_reply(payload["messages"]) if is_evidence else self.response(
+                        dict(self.payload, improvement_suggestions=[]))
                     return httpx.Response(200, json={"id": "chatcmpl-test", "object": "chat.completion",
                         "created": 1, "model": "gpt-5-mini", "choices": [{"index": 0, "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": json.dumps(self.payload)}}]})
-                client = httpx.Client(transport=httpx.MockTransport(handler))
-                self.addCleanup(client.close)
+                        "message": {"role": "assistant", "content": response.content}}]})
                 options = replace(self.options, provider=provider, model="gpt-5-mini",
                                   api_key="test-key", base_url=base_url)
-                with patch("src.ai_provider.OpenAI", side_effect=lambda **kw: OpenAI(**kw, http_client=client)):
+                with patch("src.ai_provider.OpenAI", side_effect=lambda **kw: OpenAI(
+                        **kw, http_client=httpx.Client(transport=httpx.MockTransport(handler)))):
                     result = AIInsightExtractor(options).extract_insights([self.review], ReviewFilter())
                 self.assertEqual(result.summary, self.payload["summary"])
-                body = json.loads(requests[0].content)
+                self.assertEqual(len(requests), 2)
+                body = json.loads(requests[-1].content)
                 if base_url:
                     self.assertEqual(set(body), {"model", "messages"})
                     self.assertIn('"improvement_suggestions"', body["messages"][0]["content"])
                 else:
-                    self.assertEqual(body["response_format"]["json_schema"]["schema"], INSIGHT_SCHEMA)
+                    self.assertEqual(set(body["response_format"]["json_schema"]["schema"]["properties"]), set(INSIGHT_SCHEMA["properties"]))
                     self.assertTrue(body["response_format"]["json_schema"]["strict"])
+                    self.assertEqual(body["max_completion_tokens"], 8192)
+                    self.assertEqual(json.loads(requests[0].content)["response_format"]["json_schema"]["schema"], EVIDENCE_SCHEMA)
 
 
 if __name__ == "__main__":

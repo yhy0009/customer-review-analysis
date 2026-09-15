@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
         "api_key": None,
         "base_url": None,
         "reasoning_effort": "minimal",
-        "timeout_seconds": 30,
+        "timeout_seconds": 90,
         "max_retries": 3,
     },
     "visualization": {

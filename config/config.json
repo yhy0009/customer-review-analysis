@@ -17,7 +17,7 @@
     "model": "gpt-5-mini",
     "reasoning_effort": "minimal",
     "api_key": null,
-    "timeout_seconds": 30,
+    "timeout_seconds": 90,
     "max_retries": 3
   },
   "visualization": {

@@ -81,7 +81,9 @@ def _extract_handler(args: argparse.Namespace) -> int:
                 "AI 명령 실행에 필요한 패키지가 없습니다. requirements.txt의 의존성을 설치하세요."
             ) from None
 
-        provider = provider_for(options)
+        # The review-by-review evidence response needs the extractor's output
+        # budget even when runtime constructs and injects the provider.
+        provider = provider_for(options, max_completion_tokens=8192)
         with SQLiteReviewRepository.from_config(args.app_config) as repository:
             extractor = AIInsightExtractor(options, provider=provider)
             service = InsightService(repository, extractor, snapshot=repository.read_snapshot)
