@@ -246,7 +246,9 @@ class SQLiteReviewRepository:
     Relative database paths are resolved against the project root.
     """
 
-    def __init__(self, database_path: Path | str) -> None:
+    def __init__(self, database_path: Path | str, *, read_only: bool = False) -> None:
+        if type(read_only) is not bool:
+            raise ValidationError("read_only must be a bool")
         if not str(database_path).strip() or str(database_path) == ":memory:":
             raise ValidationError("A persistent database file path is required")
         path = Path(database_path)
@@ -256,12 +258,22 @@ class SQLiteReviewRepository:
         self._connection: Optional[sqlite3.Connection] = None
         self._logger = get_logger("storage")
         try:
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
-            self._connection = sqlite3.connect(self.database_path)
+            if read_only:
+                self._connection = sqlite3.connect(self.database_path.as_uri() + "?mode=ro", uri=True)
+            else:
+                self.database_path.parent.mkdir(parents=True, exist_ok=True)
+                self._connection = sqlite3.connect(self.database_path)
             self._connection.row_factory = sqlite3.Row
             self._connection.create_function("CASEFOLD", 1, lambda value: value.casefold(), deterministic=True)
             self._connection.execute("PRAGMA foreign_keys = ON")
-            self._initialize_schema()
+            if read_only:
+                if self._connection.execute("PRAGMA user_version").fetchone()[0] != _SCHEMA_VERSION:
+                    raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
+                for table, columns in _SCHEMA_COLUMNS.items():
+                    self._connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
+                self._connection.execute("PRAGMA query_only = ON")
+            else:
+                self._initialize_schema()
         except (OSError, sqlite3.Error, StorageError) as exc:
             self.close()
             self._logger.error("SQLite initialization failed")

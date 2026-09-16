@@ -24,8 +24,8 @@
 | 팀원 (GitHub ID) | 담당 파트 | 세부 업무 내용 |
 | :--- | :--- | :--- |
 | **`yhy0009`** | **CLI & 공통 인프라 / I/O** | • `argparse` 기반 서브커맨드 CLI 인터페이스 설계<br>• 설정 파일(`config.json`) 및 로깅(`logging`) 시스템 구축<br>• 데이터 조회(`list`, `show`, `stats`) 및 검색 기능 구현<br>• 데이터 내보내기(`export`) 다중 포맷(CSV/JSONL/Excel) 개발 |
-| **`sayknow`** | **데이터 파이프라인 & 시각화** | • CSV/Excel 리뷰 데이터 수집 및 Raw 저장소 적재(`import`)<br>• 데이터 정제 규칙 적용 및 중복 처리(Clean 저장소 분리, `clean`)<br>• Matplotlib 기반 대시보드 차트 3종 생성(`dashboard`)<br>• 테스트용 샘플 리뷰 데이터셋 구성 (30건 이상) |
-| **`highslow1536`** | **AI 모델링 & 리포팅** | • AI API 연동 및 감정 분류(긍정/부정/중립)·점수 분석(`analyze`)<br>• AI 기반 조건별 빈출 키워드/이슈 요약 및 개선안 추출(`extract`)<br>• 품질 지표 & TOP N 집계 기반 종합 리포트 생성 기능 개발 |
+| **`sayknow`** | **데이터 파이프라인 & Python 시각화** | • CSV/Excel 리뷰 데이터 수집 및 Raw 저장소 적재(`import`)<br>• 데이터 정제 규칙 적용 및 중복 처리(Clean 저장소 분리, `clean`)<br>• Matplotlib 기반 대시보드 차트 3종 생성(`dashboard`)<br>• 테스트용 샘플 리뷰 데이터셋 구성 (30건 이상) |
+| **`highslow1536`** | **AI 모델링 & 리포팅 & JS 대시보드** | • AI API 연동 및 감정 분류(긍정/부정/중립)·점수 분석(`analyze`)<br>• AI 기반 조건별 빈출 키워드/이슈 요약 및 개선안 추출(`extract`)<br>• 품질 지표 & TOP N 집계 기반 종합 리포트 생성 기능 개발<br>• JS 웹 대시보드 및 Python 산출물 연결 |
 
 ---
 
@@ -229,6 +229,24 @@ python main.py dashboard --output output/
 python main.py export --format csv --sentiment negative --rating-min 3 --output output/negative_reviews.csv
 
 ```
+
+---
+
+## 🌐 JS 웹 대시보드
+
+```bash
+# 합성 리뷰와 저장된 분석 결과로 실행 (AI 호출 없음)
+python scripts/serve_dashboard.py --demo
+
+# 실제 SQLite를 읽기 전용으로 조회
+python scripts/serve_dashboard.py --database data/app_database.db
+```
+
+브라우저에서 `http://127.0.0.1:8765`에 접속합니다. Node 설치나 프론트엔드 빌드 없이
+제품·기간·감정 필터, 통계, 리뷰 상세, 원문 근거 탐색, TXT/MD 리포트 다운로드를 제공합니다.
+`sayknow`의 Python 차트 생성기를 `highslow1536`의 JS 화면에서 표시합니다.
+AI 인사이트는 별도로 준비한 파일을 연결하며 페이지 조회로 AI를 호출하지 않습니다.
+실행·데이터 계약·검증 방법은 [웹 대시보드 안내](docs/WEB_DASHBOARD.md)를 참고하세요.
 
 ---
 
