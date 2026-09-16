@@ -262,6 +262,41 @@ class ReviewDetail:
 
 
 @dataclass(slots=True)
+class InsightCitation:
+    review_id: int
+    label: str
+    quote: str
+
+    def __post_init__(self) -> None:
+        _require_positive_integer(self.review_id, "review_id")
+        for name in ("label", "quote"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise ValidationError(f"{name} must be non-empty")
+
+
+@dataclass(slots=True)
+class InsightEvidenceGroup:
+    product_name: str
+    kind: str
+    label: str
+    citations: List[InsightCitation]
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("complaints", "praises"):
+            raise ValidationError("unsupported evidence kind")
+        if not isinstance(self.label, str) or not self.label.strip():
+            raise ValidationError("evidence label must be non-empty")
+        if not isinstance(self.product_name, str):
+            raise ValidationError("product_name must be a string")
+        if not self.citations or any(not isinstance(c, InsightCitation) for c in self.citations):
+            raise ValidationError("evidence citations are required")
+
+    @property
+    def review_count(self) -> int:
+        return len({c.review_id for c in self.citations})
+
+
+@dataclass(slots=True)
 class InsightResult:
     filters: ReviewFilter
     review_count: int
@@ -271,10 +306,16 @@ class InsightResult:
     issues: List[str] = field(default_factory=list)
     improvement_suggestions: List[str] = field(default_factory=list)
     summary: str = ""
+    evidence_groups: List[InsightEvidenceGroup] = field(default_factory=list)
+    summary_scope: str = "all_evidence"
 
     def __post_init__(self) -> None:
         _require_non_negative_integer(self.review_count, "review_count")
         _require_utc(self.generated_at, "generated_at")
+        if self.summary_scope not in ("all_evidence", "top_complaints"):
+            raise ValidationError("unsupported summary scope")
+        if any(not isinstance(g, InsightEvidenceGroup) for g in self.evidence_groups):
+            raise ValidationError("invalid evidence groups")
 
 
 @dataclass(slots=True)
@@ -556,6 +597,8 @@ __all__ = [
     "ExtractRequest",
     "ImportRequest",
     "InsightResult",
+    "InsightCitation",
+    "InsightEvidenceGroup",
     "ItemError",
     "KeywordCount",
     "ListRequest",

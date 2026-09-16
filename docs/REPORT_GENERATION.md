@@ -93,3 +93,10 @@ python -m unittest discover -s tests -v
 리포터 테스트는 두 포맷의 실제 파일 내용, 빈 데이터, TOP N, 인사이트 대상 구분,
 Markdown 이스케이프, 경로·덮어쓰기·동시 생성·실패 시 파일 보존과 임시 파일 정리,
 SQLite 통계 및 extract 결과 소비를 검증한다. 리포트 생성에는 API 요청이나 키가 필요 없다.
+
+## v5 전체 근거 목록
+
+선택 필드 `InsightResult.evidence_groups`가 있으면 제품별 주제와 모든 리뷰 ID·원래 label·
+인용을 별도 절에 표시한다. `summary_scope=top_complaints`이면 본문에 리뷰 수 기준 주요
+불편 최대 3개/장점 최대 1개임을 표시한다. 요약 밖의 주제도 생략하지 않으며 기존과 같은
+Markdown 이스케이프를 적용한다. 이 필드가 없는 기존 호출자는 이전 동작을 유지한다.

@@ -853,3 +853,20 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 인자 없는 기본 실행은 여전히 기존 6개 명령을 등록한다. 세 명령의 구체 서비스 생성 함수를
 시작 코드에서 공급하는 작업은 후속 통합 단계다. 자세한 연결 규약과 검증 방법은
 [수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.
+
+
+## 19. 인사이트 근거 선택 필드 (v5)
+
+AI·리포트 확장으로 기존 `InsightResult` 생성자의 필수 인자는 유지하며 다음 선택 필드를 추가한다.
+
+- `evidence_groups: list[InsightEvidenceGroup] = []`
+- `summary_scope: str = "all_evidence"` (`all_evidence` 또는 `top_complaints`)
+- `InsightEvidenceGroup(product_name, kind, label, citations)`: kind는 complaints/praises.
+  `review_count` 속성은 인용의 서로 다른 review_id 수다.
+- `InsightCitation(review_id, label, quote)`: 원래 label·원문 인용 및 내부 리뷰 ID.
+
+분할 추출의 모든 근거를 보존하며 API에는 내부 리뷰 ID를 전송하지 않는다. 주요 이슈는 기존
+최대 3개/항목당 80자, 전체 요약 160자 계약을 유지한다. 대량 입력의 주요 이슈는 전체 근거
+목록을 참조하며 선택 범위를 명시한다. reporter와 extract 출력 어댑터는 전체 근거를 표시한다.
+기존 DTO 소비자는 기본값으로 호환되며 Repository/DB/Request/CLI 인자 계약은 바꾸지 않는다.
+정렬·제한·동의어 병합은 [인사이트 추출 안내](INSIGHT_EXTRACTION.md)를 따른다.
