@@ -18,6 +18,15 @@ from src.sqlite_repository import SQLiteReviewRepository
 from src.web_dashboard import DashboardData, encode, load_insight_artifact, select_analyzed, source_hash
 
 
+def live_extractor():
+    """Load credentials only in an explicitly requested background generation."""
+    from src.config import load_config, load_env_file
+    from src.insight_extractor import AIInsightExtractor
+    from src.models import AnalysisOptions
+    load_env_file()
+    return AIInsightExtractor(AnalysisOptions(**load_config("config/config.json")["ai"]))
+
+
 def seed_demo(directory):
     """Replay archived synthetic analysis; no API or real application DB access."""
     database = directory / "demo.sqlite"
@@ -49,17 +58,26 @@ def main():
     parser.add_argument("--insight-file", type=Path)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--enable-insights", action="store_true", help="화면의 생성 버튼으로 AI 호출 허용")
+    parser.add_argument("--insight-cache", type=Path, help="조건별 인사이트 저장·조회 폴더")
+    parser.add_argument("--insight-limit", type=int, default=50)
     args = parser.parse_args()
-    if args.demo and (args.database or args.insight_file):
+    if args.demo and (args.database or args.insight_file or args.enable_insights or args.insight_cache):
         parser.error("--demo는 실제 DB·인사이트 경로와 함께 사용할 수 없습니다.")
     if not 0 <= args.port <= 65535:
         parser.error("port는 0~65535여야 합니다.")
+    if not 1 <= args.insight_limit <= 2000:
+        parser.error("insight-limit은 1~2000이어야 합니다.")
     try:
         with tempfile.TemporaryDirectory(prefix="cra-dashboard-") as directory:
             database, insight = seed_demo(Path(directory)) if args.demo else (
                 resolve_project_path(args.database or "data/app_database.db"),
                 resolve_project_path(args.insight_file) if args.insight_file else None)
-            data = DashboardData(database, insight_path=insight, demo=args.demo)
+            cache = (resolve_project_path(args.insight_cache or "output/dashboard-insights")
+                     if args.insight_cache or args.enable_insights else None)
+            data = DashboardData(database, insight_path=insight, demo=args.demo, cache_dir=cache,
+                                 extractor_factory=live_extractor if args.enable_insights else None,
+                                 insight_limit=args.insight_limit)
             with create_server(data, args.port) as server:
                 print(f"Dashboard: http://127.0.0.1:{server.server_port} ({'합성 데이터 데모' if args.demo else 'SQLite 조회'})", flush=True)
                 server.serve_forever()

@@ -1,4 +1,4 @@
-import {labels, number, percent, dateTime, queryString, scopeText, insightStates} from "./utils.js";
+import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView} from "./utils.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {filters: {}, page: 1, snapshot: null, view: "overview", controller: null, request: 0, reviewRequest: 0};
@@ -64,10 +64,12 @@ function issueList(title, items, className = "issue-list") {
   section.append(list);
   return section;
 }
-function unavailableInsight(status) {
+function unavailableInsight(status, canGenerate = false) {
   const [title, description] = insightStates[status] || insightStates.missing;
   const node = el("div", "empty-state insight-empty");
-  node.append(el("div", "empty-symbol", "✧"), el("h3", "", title), el("p", "", description));
+  node.append(el("div", "empty-symbol", "✧"), el("h3", "", title), el("p", "", canGenerate
+    ? "화면 위의 생성 버튼으로 현재 조건의 인사이트를 준비하세요. 진행 상태도 같은 곳에서 확인할 수 있습니다."
+    : description));
   return node;
 }
 function renderInsights(data) {
@@ -75,8 +77,8 @@ function renderInsights(data) {
   preview.replaceChildren(); full.replaceChildren();
   const insight = data.insight;
   if (!insight) {
-    preview.append(unavailableInsight(data.insight_status));
-    const panel = el("article", "panel"); panel.append(unavailableInsight(data.insight_status)); full.append(panel);
+    preview.append(unavailableInsight(data.insight_status, data.generation?.enabled));
+    const panel = el("article", "panel"); panel.append(unavailableInsight(data.insight_status, data.generation?.enabled)); full.append(panel);
     return;
   }
   const summary = insight.review_count ? insight.summary : "조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다.";
@@ -171,9 +173,58 @@ function render(data) {
   $("#stat-rating").textContent = stats.average_rating === null ? "—" : Number(stats.average_rating).toFixed(2);
   renderKeywords("#positive-keywords", stats.top_positive_keywords);
   renderKeywords("#negative-keywords", stats.top_negative_keywords);
-  renderInsights(data); renderReviews(data); renderChart(data); updateNavigation();
+  renderInsights(data); renderReviews(data); renderChart(data); updateNavigation(); renderGeneration(data);
 }
+
+let generationTimer;
+function renderGeneration(data) {
+  const generation = data.generation;
+  $("#generation-panel").hidden = !generation?.enabled;
+  if (!generation?.enabled) return;
+  const view = generationView(generation, data.insight_status);
+  $("#generate-insight").disabled = view.disabled;
+  $("#generate-insight").textContent = view.label;
+  $("#generation-status").textContent = view.message;
+  clearTimeout(generationTimer);
+  if (generation.job?.status === "running") {
+    generationTimer = setTimeout(() => pollGeneration(data), 1200);
+  }
+}
+async function pollGeneration(data) {
+  if (state.snapshot !== data) return;
+  try {
+    const job = await readJSON(`/api/insight-jobs/${data.generation.job.id}`);
+    if (state.snapshot !== data) return;
+    data.generation.job = job;
+    if (job.status === "succeeded") {
+      await load();
+      toast("인사이트가 저장됐습니다. 현재 조회 데이터와 일치하는 결과를 표시합니다.");
+    } else renderGeneration(data);
+  } catch (error) {
+    if (state.snapshot === data) $("#generation-status").textContent = `${error.message} 새로고침으로 작업 상태를 다시 확인하세요.`;
+  }
+}
+$("#generate-insight").addEventListener("click", async () => {
+  const data = state.snapshot;
+  if (!data?.generation?.enabled) return;
+  $("#generate-insight").disabled = true;
+  $("#generation-status").textContent = "생성 요청을 확인하는 중입니다.";
+  try {
+    const job = await readJSON("/api/insight-jobs", {method: "POST",
+      headers: {"Content-Type": "application/json", "X-Dashboard-Token": data.generation.token},
+      body: JSON.stringify({snapshot_id: data.snapshot_id})});
+    if (state.snapshot !== data) return;
+    data.generation.job = job;
+    if (job.status === "succeeded") await load();
+    else renderGeneration(data);
+  } catch (error) {
+    if (state.snapshot !== data) return;
+    renderGeneration(data);
+    $("#generation-status").textContent = error.message;
+  }
+});
 async function load() {
+  clearTimeout(generationTimer);
   state.controller?.abort();
   state.controller = new AbortController();
   const request = ++state.request;

@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import uuid
+import secrets
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
@@ -145,16 +146,25 @@ class Snapshot:
     reviews: dict
     created: float
     chart: bytes | None = None
+    generation_source: list | None = None
 
 
 class DashboardData:
-    def __init__(self, database, *, insight_path=None, demo=False, ttl=900, capacity=16):
+    def __init__(self, database, *, insight_path=None, demo=False, ttl=900, capacity=16,
+                 cache_dir=None, extractor_factory=None, insight_limit=50):
         self.database = Path(database)
         self.insight_path = Path(insight_path) if insight_path else None
         self.demo, self.ttl, self.capacity = demo, ttl, capacity
         self.snapshots = OrderedDict()
         self.lock = threading.Lock()
         self.chart_lock = threading.Lock()
+        self.jobs = None
+        self.generation_token = secrets.token_urlsafe(32)
+        if cache_dir is not None:
+            from src.dashboard_insights import InsightJobs
+            self.jobs = InsightJobs(database, cache_dir, extractor_factory, insight_limit)
+        elif extractor_factory is not None:
+            raise ValidationError("인사이트 저장 경로가 필요합니다.")
         # Fail early without creating or migrating a DB.
         with SQLiteReviewRepository(self.database, read_only=True):
             pass
@@ -169,23 +179,30 @@ class DashboardData:
         source = []
         # Load before querying; everything displayed is bound to this DB read snapshot.
         artifact = load_insight_artifact(self.insight_path) if self.insight_path else None
+        if self.jobs:
+            cached, cache_status = self.jobs.cached(filters)
+            if cached:
+                artifact = cached
+            elif cache_status == "invalid":
+                status = "invalid"
+        generation_source = None
         with SQLiteReviewRepository(self.database, read_only=True) as repository:
             with repository.read_snapshot():
                 stats = repository.get_statistics(filters)
                 rows = repository.list_reviews(ReviewQuery(filters=filters, page=page, size=10,
                                                           sort=SortField.ID, order=SortOrder.DESC))
+                if self.jobs:
+                    generation_source = select_analyzed(repository, filters, self.jobs.limit)
                 if artifact:
                     candidate = artifact["result"]
                     status = "scope_mismatch"
                     if candidate.filters == filters:
-                        source = select_analyzed(repository, filters, artifact["selection_limit"])
+                        source = (generation_source if self.jobs and artifact["selection_limit"] == self.jobs.limit
+                                  else select_analyzed(repository, filters, artifact["selection_limit"]))
                         status = "stale"
-                        if ([d.review.id for d in source] == artifact["review_ids"]
-                                and source_hash(source) == artifact["source_sha256"]):
-                            texts = {d.review.id: d.review.review_text for d in source}
-                            if all(c.review_id in texts and c.quote in texts[c.review_id]
-                                   for g in candidate.evidence_groups for c in g.citations):
-                                insight, status = candidate, "available"
+                        from src.dashboard_insights import matches
+                        if matches(artifact, source, filters):
+                            insight, status = candidate, "available"
         by_id = {d.review.id: public_review(d) for d in [*source, *rows.items]}
         token = uuid.uuid4().hex
         response = {"schema_version": 1, "snapshot_id": token,
@@ -196,7 +213,13 @@ class DashboardData:
                     "insight_status": status, "insight": json_value(asdict(insight)) if insight else None,
                     "chart_url": f"/api/chart/{token}",
                     "report_urls": {fmt: f"/api/report/{token}/{fmt}" for fmt in ("md", "txt")}}
-        snapshot = Snapshot(response, stats, insight, by_id, time.monotonic())
+        response["generation"] = {"enabled": bool(self.jobs and self.jobs.factory),
+                                  "limit": self.jobs.limit if self.jobs else None,
+                                  "review_count": len(generation_source or []),
+                                  "token": self.generation_token if self.jobs and self.jobs.factory else None,
+                                  "job": self.jobs.latest(filters) if self.jobs else None}
+        snapshot = Snapshot(response, stats, insight, by_id, time.monotonic(),
+                            generation_source=generation_source)
         with self.lock:
             self.snapshots[token] = snapshot
             while len(self.snapshots) > self.capacity:
@@ -210,3 +233,16 @@ class DashboardData:
                 self.snapshots.pop(token, None)
                 raise KeyError("expired snapshot")
             return snapshot
+
+    def start_generation(self, token):
+        from src.dashboard_insights import GenerationConflict
+        if not self.jobs or not self.jobs.factory:
+            raise ValidationError("인사이트 생성이 활성화되지 않았습니다.")
+        snapshot = self.get_snapshot(token)
+        filters = filters_from_dict(snapshot.response["filters"])
+        with SQLiteReviewRepository(self.database, read_only=True) as repository:
+            with repository.read_snapshot():
+                current = select_analyzed(repository, filters, self.jobs.limit)
+        if source_hash(current) != source_hash(snapshot.generation_source):
+            raise GenerationConflict("조회 이후 데이터가 변경됐습니다. 새로고침 후 생성하세요.")
+        return self.jobs.start(snapshot.generation_source, filters)
