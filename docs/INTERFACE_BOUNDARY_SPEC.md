@@ -15,17 +15,17 @@
 - 현재 남아 있는 팀 공통 경계의 미합의 사항은 없다.
 - 공통 계약을 바꿀 때는 15절의 인터페이스 변경 규칙을 따른다.
 
-이 프로젝트는 현재 하나의 Python 프로세스 안에서 모듈을 호출하고 SQLite 또는
-JSONL 저장소를 공유하는 구조다. 따라서 이 문서의 "API"는 HTTP API가 아니라
-Python 함수, 데이터 객체, 저장소 스키마, 파일 입출력 계약을 뜻한다.
+기존 CLI는 Python 모듈과 SQLite 또는 JSONL 저장소를 공유한다. 기존 절의 "API"는
+Python 함수·데이터 객체·저장소·파일 계약을 뜻한다. JS 웹 대시보드는 별도의 로컬 HTTP
+어댑터를 사용하며, 해당 계약은 25절과 웹 대시보드 안내에 정의한다.
 
 ## 2. 담당 영역과 경계
 
 | 담당자 | 소유 영역 | 다른 영역에 제공할 인터페이스 |
 |---|---|---|
 | `yhy0009` | CLI, 설정·로깅, 조회·통계, 내보내기 | CLI 인자, 명령 핸들러 계약, 공통 설정, 조회·Export 결과 |
-| `sayknow` | 수집, 정제, 시각화 | Raw/Clean Review, Import/Clean 결과, 차트 산출물 |
-| `highslow1536` | AI 분석, 인사이트 추출, 리포트 | Analysis Result, Insight Result, 리포트 산출물 |
+| `sayknow` | 수집, 정제, Python 시각화 자료 | Raw/Clean Review, Import/Clean 결과, 차트 산출물 |
+| `highslow1536` | AI 분석, 인사이트 추출, 리포트, JS 웹 대시보드 | Analysis Result, Insight Result, 리포트 산출물, 웹 화면·조회 HTTP 어댑터 |
 | `yhy0009` | 공통 저장소 `storage.py` | Raw/Clean/Analysis 읽기·쓰기 Repository API |
 
 ### 2.1 명령별 핸들러 소유권
@@ -43,7 +43,9 @@ Python 함수, 데이터 객체, 저장소 스키마, 파일 입출력 계약을
 | `export` | `yhy0009` | `storage`, `exporter` |
 
 `dashboard` 핸들러는 전체 실행을 조율하고, 리포트 본문 생성은
-`highslow1536`의 `reporter` 인터페이스를 호출한다.
+`highslow1536`의 `reporter` 인터페이스를 호출한다. 이 CLI 소유권과 별도로
+JS 웹 화면 및 연결 서버는 `highslow1536`이 담당한다. 시각화 차트 자체는
+`sayknow`의 `DashboardVisualizer` 산출물을 그대로 사용한다.
 
 ## 3. 전체 처리 흐름
 
@@ -870,3 +872,21 @@ AI·리포트 확장으로 기존 `InsightResult` 생성자의 필수 인자는 
 목록을 참조하며 선택 범위를 명시한다. reporter와 extract 출력 어댑터는 전체 근거를 표시한다.
 기존 DTO 소비자는 기본값으로 호환되며 Repository/DB/Request/CLI 인자 계약은 바꾸지 않는다.
 정렬·제한·동의어 병합은 [인사이트 추출 안내](INSIGHT_EXTRACTION.md)를 따른다.
+
+
+## 25. JS 웹 대시보드 조회 경계
+
+- `web/`는 빌드 없는 JS 모듈 기반 화면, `src/dashboard_server.py`는 로컬 HTTP 어댑터다.
+- `SQLiteReviewRepository(path, read_only=True)`는 기존 DB만 조회한다. 스키마 생성·이행을
+  수행하지 않으며 쓰기 SQL을 거부한다. 기본 생성자와 기존 import 경로는 유지한다.
+- `GET /api/snapshot`은 같은 `read_snapshot()` 안에서 통계·리뷰 페이지·인사이트 근거를
+  읽고 `schema_version=1`, `snapshot_id`를 반환한다. JS는 별도로 통계를 재계산하지 않는다.
+- 차트, TXT/MD 리포트, 리뷰 상세는 이 ID의 보관된 데이터만 사용한다. 보관 한도는 16개,
+  수명은 15분이다. 만료 또는 한도 초과로 삭제된 결과는 HTTP 410이며 새 조회가 필요하다.
+- 인사이트 파일에는 선택 한도·리뷰 ID·원문과 분석의 SHA-256·필터를 저장한다.
+  필터나 원문·분석이 달라진 결과는 표시하지 않는다. AI 호출은 명시적 준비 스크립트로 분리한다.
+- 차트는 기존 `DashboardVisualizer`, 리포트는 기존 `FileReportGenerator`를 호출한다.
+  DB 스키마, 기존 CLI 명령, 담당자의 시각화 구현을 변경하지 않는다.
+- 서버는 127.0.0.1에만 바인딩한다. 브라우저에는 API 키·원본 파일 경로·Raw payload를 보내지 않는다.
+
+세부 JSON 필드와 실행·오류 계약은 [웹 대시보드 안내](WEB_DASHBOARD.md)를 따른다.

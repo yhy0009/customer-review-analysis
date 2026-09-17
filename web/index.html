@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>리뷰 인사이트 · Review Lab</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 건너뛰기</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><img src="/favicon.svg" alt="" width="34" height="34"><span>REVIEW<span class="brand-light">LAB</span></span></a>
+    <p class="workspace-label">CUSTOMER INTELLIGENCE</p>
+    <nav aria-label="대시보드 메뉴">
+      <a href="#overview" data-view="overview"><span aria-hidden="true">▦</span> 분석 개요</a>
+      <a href="#reviews" data-view="reviews"><span aria-hidden="true">☷</span> 리뷰 탐색 <span class="nav-count" id="nav-count">—</span></a>
+      <a href="#insights" data-view="insights"><span aria-hidden="true">✧</span> AI 인사이트</a>
+    </nav>
+    <div class="sidebar-note"><span class="live-dot"></span> 로컬 워크스페이스<p>데이터는 이 컴퓨터에서 조회합니다.</p><span class="quiet-label">READ ONLY</span></div>
+    <div class="sidebar-footer"><span class="avatar">CR</span><div>Customer Review<small>Analysis workspace</small></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb">워크스페이스 <span>/</span> <strong id="breadcrumb-current">분석 개요</strong></div><div class="topbar-meta"><span id="data-mode" class="tag">연결 중</span><span class="local-label">로컬 대시보드</span></div></header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><p class="eyebrow">REVIEW ANALYTICS</p><h1 id="page-title">고객의 목소리를 한눈에</h1><p class="page-description" id="page-description">리뷰의 흐름을 읽고, 다음 개선점을 발견하세요.</p></div><div class="heading-actions"><button class="button secondary" id="refresh" type="button"><span aria-hidden="true">↻</span> 새로고침</button><details class="download-menu" id="download-menu"><summary class="button primary">리포트 다운로드 <span aria-hidden="true">↓</span></summary><div><button type="button" data-report="md">Markdown (.md)</button><button type="button" data-report="txt">텍스트 (.txt)</button></div></details></div></div>
+      <form id="filters" class="filter-bar" aria-label="리뷰 조회 조건">
+        <label class="product-input"><span>제품명</span><input name="product_name" type="search" placeholder="전체 제품 · 이름으로 검색" maxlength="200"></label>
+        <label><span>시작일</span><input name="date_from" type="date" aria-label="시작일"></label>
+        <span class="date-separator" aria-hidden="true">—</span>
+        <label><span>종료일</span><input name="date_to" type="date" aria-label="종료일"></label>
+        <label><span>리뷰 감정</span><select name="sentiment"><option value="">전체 감정</option><option value="positive">긍정</option><option value="neutral">중립</option><option value="negative">부정</option></select></label>
+        <button type="submit" class="button filter-submit">조회</button><button type="reset" class="reset-button">초기화</button>
+      </form>
+      <div class="scope-row"><p id="scope-text">분석 자료를 불러오고 있습니다.</p><span id="updated-at">—</span></div>
+      <div class="error-banner" id="error" role="alert" hidden></div>
+      <div id="loading" class="loading-panel" role="status"><span class="spinner"></span> 분석 자료를 불러오는 중입니다.</div>
+      <div id="content" hidden>
+        <section class="stat-grid" aria-label="주요 분석 지표">
+          <article class="stat-card"><div class="stat-label">전체 리뷰 <span class="stat-icon">▤</span></div><div class="stat-value" id="stat-total">—</div><p id="stat-total-note">현재 조회 조건 기준</p></article>
+          <article class="stat-card"><div class="stat-label">분석 완료 <span class="stat-icon blue">✓</span></div><div class="stat-value" id="stat-analyzed">—</div><p id="stat-analyzed-note">—</p></article>
+          <article class="stat-card"><div class="stat-label">긍정 리뷰 비율 <span class="stat-icon green">↗</span></div><div class="stat-value" id="stat-positive">—</div><p id="stat-positive-note">분석 완료 리뷰 기준</p></article>
+          <article class="stat-card"><div class="stat-label">평균 별점 <span class="stat-icon amber">☆</span></div><div class="stat-value" id="stat-rating">—</div><p>조회된 전체 리뷰 기준 · 5점 만점</p></article>
+        </section>
+        <section id="overview-view" class="view-panel">
+          <div class="overview-grid">
+            <article class="panel chart-panel"><div class="panel-heading"><div><h2>리뷰 분석 대시보드</h2><p>감정 분포 · 일별 추이 · 별점 관계 · 주요 키워드</p></div><span class="quiet-label">REVIEW STATISTICS</span></div><div class="chart-frame"><div id="chart-loading" class="chart-placeholder" role="status"><span class="spinner"></span> 시각화 자료를 만드는 중입니다.</div><img id="chart" alt="감정 분포, 일별 추이, 별점과 감정 관계 및 키워드 통합 차트" hidden><div id="chart-error" class="empty-state" hidden><span>차트를 불러오지 못했습니다.</span><button class="text-button" id="retry-chart" type="button">다시 시도</button></div></div><div class="chart-footer"><span>현재 조회 조건과 동일한 통계로 생성됩니다.</span><a id="chart-open" href="#" target="_blank" rel="noopener">원본 보기 ↗</a></div></article>
+            <article class="panel insight-preview"><div class="panel-heading"><div><p class="eyebrow">VOICE → INSIGHT</p><h2>리뷰에서 발견한 이야기</h2></div><span class="sparkle" aria-hidden="true">✧</span></div><div id="insight-preview-content"></div><a class="insight-link" href="#insights">전체 인사이트와 근거 보기 <span>→</span></a></article>
+          </div>
+          <article class="panel keyword-panel"><div class="panel-heading"><div><h2>자주 언급된 키워드</h2><p>키워드를 포함한 리뷰 수 · 리뷰 전체 감정 기준</p></div><span class="quiet-label">TOP 10</span></div><div class="keyword-columns"><div><h3><span class="sentiment-dot positive"></span> 긍정 리뷰</h3><div id="positive-keywords" class="keyword-list"></div></div><div><h3><span class="sentiment-dot negative"></span> 부정 리뷰</h3><div id="negative-keywords" class="keyword-list"></div></div></div></article>
+        </section>
+        <section id="reviews-view" class="view-panel" hidden><article class="panel"><div class="panel-heading"><div><h2>리뷰 탐색</h2><p>리뷰를 선택하면 원문과 저장된 분석 결과를 확인할 수 있습니다.</p></div><span id="review-count" class="tag"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">제품 / 작성일</th><th scope="col">리뷰 내용</th><th scope="col">별점</th><th scope="col">분석 감정</th><th scope="col"><span class="sr-only">상세 보기</span></th></tr></thead><tbody id="review-rows"></tbody></table></div><div class="pagination"><span id="page-info"></span><div><button class="button secondary compact" id="previous-page" type="button">← 이전</button><button class="button secondary compact" id="next-page" type="button">다음 →</button></div></div></article></section>
+        <section id="insights-view" class="view-panel" hidden><div id="insight-full"></div></section>
+      </div>
+      <footer class="page-footer"><span>REVIEW LAB <span class="footer-dot">·</span> 고객 리뷰 분석 워크스페이스</span><span>차트와 AI 해석을 원문 근거와 함께 확인하세요.</span></footer>
+    </main>
+  </div>
+  <dialog id="review-dialog" aria-labelledby="review-title"><div class="dialog-header"><div><p class="eyebrow">REVIEW DETAIL</p><h2 id="review-title">리뷰 상세</h2></div><button type="button" class="close-button" id="close-dialog" aria-label="리뷰 상세 닫기">×</button></div><div id="review-detail"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
