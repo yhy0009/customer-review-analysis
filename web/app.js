@@ -1,4 +1,4 @@
-import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView} from "./utils.js";
+import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView, provenanceText} from "./utils.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {filters: {}, page: 1, snapshot: null, view: "overview", controller: null, request: 0, reviewRequest: 0};
@@ -67,7 +67,7 @@ function issueList(title, items, className = "issue-list") {
 function unavailableInsight(status, canGenerate = false) {
   const [title, description] = insightStates[status] || insightStates.missing;
   const node = el("div", "empty-state insight-empty");
-  node.append(el("div", "empty-symbol", "✧"), el("h3", "", title), el("p", "", canGenerate
+  node.append(el("div", "empty-symbol", "✧"), el("h3", "", title), el("p", "", canGenerate && status !== "config_mismatch"
     ? "화면 위의 생성 버튼으로 현재 조건의 인사이트를 준비하세요. 진행 상태도 같은 곳에서 확인할 수 있습니다."
     : description));
   return node;
@@ -83,10 +83,12 @@ function renderInsights(data) {
   }
   const summary = insight.review_count ? insight.summary : "조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다.";
   preview.append(el("span", "insight-scope", `분석 리뷰 ${number(insight.review_count)}건의 인사이트`),
+    el("p", "provenance-note", provenanceText(data.insight_provenance)),
     el("p", "summary-text", summary), issueList("주요 이슈", insight.issues));
   if (insight.summary_scope === "top_complaints") preview.append(el("p", "scope-note", "리뷰 수 기준 불편 최대 3개 · 전체 근거는 상세 화면에 보존됩니다."));
   const summaryPanel = el("article", "panel full-summary");
   summaryPanel.append(el("p", "eyebrow", "AI GENERATED INSIGHT"), el("h2", "", "주요 인사이트"),
+    el("p", "provenance-note", provenanceText(data.insight_provenance)),
     el("p", "summary-large", summary),
     el("p", "muted", `${number(insight.review_count)}건 / 현재 분석 완료 ${number(data.statistics.analyzed_reviews)}건 · 생성 ${dateTime(insight.generated_at)}`));
   if (insight.summary_scope === "top_complaints") summaryPanel.append(el("p", "scope-note", "리뷰 수 기준 주요 불편 최대 3개와 장점 최대 1개의 요약입니다. 심각도 순위가 아니며 모든 근거는 아래 목록에 남습니다."));
@@ -182,6 +184,7 @@ function renderGeneration(data) {
   $("#generation-panel").hidden = !generation?.enabled;
   if (!generation?.enabled) return;
   const view = generationView(generation, data.insight_status);
+  $("#generation-profile").textContent = generation.profile ? provenanceText(generation.profile) : "";
   $("#generate-insight").disabled = view.disabled;
   $("#generate-insight").textContent = view.label;
   $("#generation-status").textContent = view.message;

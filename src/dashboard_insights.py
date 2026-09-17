@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from src.errors import ValidationError
+from src.insight_provenance import validate_profile
 from src.web_dashboard import encode, load_insight_artifact, make_insight_artifact, source_hash
 
 
@@ -29,12 +30,13 @@ def matches(artifact, details, filters):
 
 
 class InsightJobs:
-    def __init__(self, database, directory, factory, limit=50):
+    def __init__(self, database, directory, factory, limit=50, *, profile=None):
         if type(limit) is not int or not 1 <= limit <= 2000:
             raise ValidationError("인사이트 선택 한도는 1~2000이어야 합니다.")
         self.directory = Path(directory)
         self.namespace = str(Path(database).resolve())
         self.factory, self.limit = factory, limit
+        self.profile = validate_profile(profile) if profile is not None else None
         self.lock = threading.Lock()
         self.jobs = OrderedDict()
         self.active = None
@@ -53,6 +55,9 @@ class InsightJobs:
             return artifact, "available"
         except ValidationError:
             return None, "invalid"
+
+    def compatible(self, artifact):
+        return self.profile is None or artifact.get("generation_profile") == self.profile
 
     def latest(self, filters):
         key = self.key(filters)
@@ -81,7 +86,7 @@ class InsightJobs:
                     return self.public(current)
                 raise GenerationConflict("다른 인사이트를 생성 중입니다. 완료 후 다시 시도하세요.")
             cached, _ = self.cached(filters)
-            reused = bool(cached and matches(cached, details, filters))
+            reused = bool(cached and self.compatible(cached) and matches(cached, details, filters))
             job = {"id": uuid.uuid4().hex, "key": key, "digest": digest,
                    "status": "succeeded" if reused else "running", "review_count": len(details),
                    "error": None, "reused": reused}
@@ -97,7 +102,7 @@ class InsightJobs:
         path = None
         try:
             result = self.factory().extract_insights(details, filters)
-            artifact = make_insight_artifact(details, result, self.limit)
+            artifact = make_insight_artifact(details, result, self.limit, profile=self.profile)
             self.directory.mkdir(parents=True, exist_ok=True)
             # Readers see either the old complete result or the new complete result.
             fd, name = tempfile.mkstemp(prefix=".insight-", suffix=".tmp", dir=self.directory)
