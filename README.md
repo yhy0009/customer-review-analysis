@@ -246,6 +246,8 @@ python scripts/serve_dashboard.py --database data/app_database.db
 제품·기간·감정 필터, 통계, 리뷰 상세, 원문 근거 탐색, TXT/MD 리포트 다운로드를 제공합니다.
 `sayknow`의 Python 차트 생성기를 `highslow1536`의 JS 화면에서 표시합니다.
 AI 인사이트는 별도로 준비한 파일을 연결하며 페이지 조회로 AI를 호출하지 않습니다.
+화면에서 현재 조건의 인사이트를 생성·저장하려면 실제 DB 실행 명령에 `--enable-insights`를
+추가합니다. 버튼을 눌렀을 때만 AI를 호출하고, 조건별 결과를 저장해 재사용합니다.
 실행·데이터 계약·검증 방법은 [웹 대시보드 안내](docs/WEB_DASHBOARD.md)를 참고하세요.
 
 ---

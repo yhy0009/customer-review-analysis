@@ -1,6 +1,7 @@
 """Loopback-only read-only HTTP adapter for the JS dashboard."""
 
 import json
+import hmac
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -42,11 +43,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def error(self, code, message):
         self.send_bytes(code, encode({"error": message}))
 
+    def local_request(self, *, mutation=False):
+        hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        host, origin = self.headers.get("Host"), self.headers.get("Origin")
+        return host in hosts and (origin == f"http://{host}" if mutation
+                                  else not origin or origin in {f"http://{h}" for h in hosts})
+
     def do_GET(self):
-        port = self.server.server_port
-        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-        origin = self.headers.get("Origin")
-        if self.headers.get("Host") not in hosts or (origin and origin not in {f"http://{h}" for h in hosts}):
+        if not self.local_request():
             return self.error(403, "로컬 대시보드 주소로 접속하세요.")
         if len(self.path) > 4096:
             return self.error(400, "요청이 너무 깁니다.")
@@ -65,6 +69,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 snapshot = self.server.data.create_snapshot(filters_from_dict(values), page)
                 return self.send_bytes(200, encode(snapshot.response))
             pieces = path.strip("/").split("/")
+            if len(pieces) == 3 and pieces[:2] == ["api", "insight-jobs"] and self.server.data.jobs:
+                return self.send_bytes(200, encode(self.server.data.jobs.get(pieces[2])))
             if len(pieces) >= 3 and pieces[:2] in (["api", "chart"], ["api", "report"], ["api", "review"]):
                 snapshot = self.server.data.get_snapshot(pieces[2])
                 if query:
@@ -103,7 +109,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.error(500, "대시보드 처리 중 오류가 발생했습니다.")
 
     def do_POST(self):
-        self.error(405, "이 대시보드는 조회만 지원합니다.")
+        from src.dashboard_insights import GenerationConflict
+        data = self.server.data
+        if self.path != "/api/insight-jobs" or not data.jobs or not data.jobs.factory:
+            return self.error(405, "인사이트 생성이 활성화되지 않았습니다.")
+        if not self.local_request(mutation=True) or not hmac.compare_digest(
+                self.headers.get("X-Dashboard-Token", "").encode(), data.generation_token.encode()):
+            return self.error(403, "현재 대시보드 화면에서 요청하세요.")
+        if self.headers.get("Content-Type") != "application/json" or self.headers.get("Transfer-Encoding"):
+            return self.error(400, "JSON 요청이 필요합니다.")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 1024:
+                raise ValueError
+            self.connection.settimeout(5)
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict) or set(payload) != {"snapshot_id"} or not isinstance(payload["snapshot_id"], str):
+                raise ValueError
+            job = data.start_generation(payload["snapshot_id"])
+            self.send_bytes(202 if job["status"] == "running" else 200, encode(job))
+        except KeyError:
+            self.error(410, "조회 결과가 만료됐습니다. 새로고침 후 생성하세요.")
+        except GenerationConflict as exc:
+            self.error(409, str(exc))
+        except (ValueError, ValidationError):
+            self.error(400, "생성 대상이나 요청 형식을 확인하세요.")
+        except (OSError, AppError):
+            self.error(503, "생성 대상을 불러오지 못했습니다. DB와 연결을 확인하세요.")
+        except Exception:
+            self.error(500, "인사이트 생성 요청을 처리하지 못했습니다.")
 
 
 def create_server(data, port=8765):

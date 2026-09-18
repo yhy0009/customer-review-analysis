@@ -252,3 +252,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,windows,python,visualstudiocode
+
+# Local dashboard insight artifacts may contain review excerpts.
+/output/dashboard-insights/

@@ -38,6 +38,10 @@
       <div class="error-banner" id="error" role="alert" hidden></div>
       <div id="loading" class="loading-panel" role="status"><span class="spinner"></span> 분석 자료를 불러오는 중입니다.</div>
       <div id="content" hidden>
+        <section id="generation-panel" class="generation-panel" aria-label="인사이트 생성" hidden>
+          <div><h2>현재 조건의 AI 인사이트</h2><p id="generation-status" role="status"></p></div>
+          <button id="generate-insight" class="button primary" type="button">현재 조건으로 인사이트 생성</button>
+        </section>
         <section class="stat-grid" aria-label="주요 분석 지표">
           <article class="stat-card"><div class="stat-label">전체 리뷰 <span class="stat-icon">▤</span></div><div class="stat-value" id="stat-total">—</div><p id="stat-total-note">현재 조회 조건 기준</p></article>
           <article class="stat-card"><div class="stat-label">분석 완료 <span class="stat-icon blue">✓</span></div><div class="stat-value" id="stat-analyzed">—</div><p id="stat-analyzed-note">—</p></article>
