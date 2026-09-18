@@ -24,7 +24,7 @@ test('form can replace or remove a rating without retaining the other mode', () 
 test('invalid or ambiguous bookmarks fail rather than silently querying all reviews', () => {
   for (const query of ['rating=0', 'rating=6', 'rating=2.0', 'rating_min=-1',
     'rating=1&rating_min=2', 'rating=1&rating=2', 'page=1&page=2', 'page=0', 'page=-1',
-    'page=2.5', 'page=', 'page=9007199254740992', 'sentiment=toString',
+    'page=2.5', 'page=', 'page=1000001', 'page=9007199254740992', 'sentiment=toString',
     'date_from=2026-02-30', 'date_from=0000-01-01', 'date_from=2026-13-01',
     'date_from=2026-09-18&date_to=2026-09-01', 'product_name=' + '가'.repeat(201)]) {
     assert.throws(() => readQuery(query), /조회 조건/, query);

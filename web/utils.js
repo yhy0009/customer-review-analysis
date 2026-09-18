@@ -31,7 +31,7 @@ export function readQuery(search) {
   for (const key of ["rating", "rating_min"]) if (filters[key] && !/^[1-5]$/.test(filters[key])) invalid();
   if (filters.rating && filters.rating_min) invalid();
   const rawPage = params.get("page") ?? "1", page = Number(rawPage);
-  if (!/^[1-9]\d*$/.test(rawPage) || !Number.isSafeInteger(page)) invalid();
+  if (!/^[1-9]\d*$/.test(rawPage) || !Number.isSafeInteger(page) || page > 1_000_000) invalid();
   return {filters, page};
 }
 export function ratingSelection(filters) {
