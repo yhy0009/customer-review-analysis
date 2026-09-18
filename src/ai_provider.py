@@ -5,9 +5,9 @@ from json import JSONDecodeError, dumps
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from openai import APIStatusError, OpenAI, OpenAIError
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, OpenAIError
 
-from src.errors import AIProviderError, ConfigError
+from src.errors import AIErrorCode, AIProviderError, ConfigError
 from src.models import AnalysisOptions
 
 
@@ -85,10 +85,24 @@ class OpenAIProvider:
                 )
         except APIStatusError as exc:
             transient = exc.status_code in (408, 409, 429) or exc.status_code >= 500
+            code = (AIErrorCode.QUOTA if exc.code == "insufficient_quota" else
+                    AIErrorCode.RATE_LIMIT if exc.status_code == 429 else AIErrorCode.HTTP)
             if not transient or exc.code == "insufficient_quota":
-                raise NonRetryableAIError(f"AI 요청 설정·모델 지원·권한·할당량을 확인하세요. (HTTP {exc.status_code})") from None
-            raise AIProviderError(f"AI 분석 요청에 일시적인 오류가 발생했습니다. (HTTP {exc.status_code})") from None
-        except (OpenAIError, JSONDecodeError):
+                raise NonRetryableAIError(
+                    f"AI 요청 설정·모델 지원·권한·할당량을 확인하세요. (HTTP {exc.status_code})",
+                    code=code, http_status=exc.status_code,
+                ) from None
+            raise AIProviderError(
+                f"AI 분석 요청에 일시적인 오류가 발생했습니다. (HTTP {exc.status_code})",
+                code=code, http_status=exc.status_code,
+            ) from None
+        except APITimeoutError:
+            raise AIProviderError("OpenAI 요청 시간이 초과되었습니다.", code=AIErrorCode.TIMEOUT) from None
+        except APIConnectionError:
+            raise AIProviderError("OpenAI에 연결할 수 없습니다.", code=AIErrorCode.CONNECTION) from None
+        except JSONDecodeError:
+            raise AIProviderError("OpenAI 응답을 읽을 수 없습니다.", code=AIErrorCode.RESPONSE) from None
+        except OpenAIError:
             # SDK exceptions can include request/response bodies or credentials.
             raise AIProviderError("OpenAI 분석 요청에 실패했습니다.") from None
 
@@ -97,14 +111,18 @@ class OpenAIProvider:
                 raise ValueError
             choice = response.choices[0]
             if choice.finish_reason != "stop" or choice.message.refusal:
-                raise NonRetryableAIError("OpenAI가 분석을 거부하거나 출력을 중단했습니다.")
+                code = (AIErrorCode.OUTPUT_LIMIT if choice.finish_reason == "length" else
+                        AIErrorCode.REFUSAL if choice.finish_reason in ("stop", "content_filter") else
+                        AIErrorCode.INTERRUPTED)
+                raise NonRetryableAIError("OpenAI가 분석을 거부하거나 출력을 중단했습니다.", code=code)
             content = choice.message.content
             if not isinstance(content, str) or not content.strip():
                 raise ValueError
             if not isinstance(response.model, str) or not response.model.strip():
                 raise ValueError
         except (AttributeError, TypeError, ValueError):
-            raise AIProviderError("OpenAI가 완전한 분석 응답을 반환하지 않았습니다.") from None
+            raise AIProviderError("OpenAI가 완전한 분석 응답을 반환하지 않았습니다.",
+                                  code=AIErrorCode.RESPONSE) from None
         return ProviderResponse(content=content, model=response.model)
 
 
