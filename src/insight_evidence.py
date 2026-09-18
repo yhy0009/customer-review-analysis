@@ -2,7 +2,7 @@
 
 import json
 
-from src.errors import AIProviderError
+from src.errors import AIErrorCode, AIProviderError
 
 
 EVIDENCE_PROMPT = """고객 리뷰에서 실제 불편과 장점의 근거를 추출한다. 요약이나 해결책은 아직 쓰지 않는다.
@@ -46,13 +46,15 @@ def parse_evidence(content, reviews):
         if not isinstance(payload, dict) or set(payload) != {"reviews"}:
             raise ValueError
         rows = payload["reviews"]
-        if not isinstance(rows, list) or len(rows) != len(reviews):
+        if not isinstance(rows, list):
             raise ValueError
+        if len(rows) != len(reviews):
+            raise AIProviderError("근거의 리뷰 수가 입력과 일치하지 않습니다.", code=AIErrorCode.EVIDENCE_REVIEWS)
         for number, (row, review) in enumerate(zip(rows, reviews), 1):
             if not isinstance(row, dict) or set(row) != {"review_number", "complaints", "praises"}:
                 raise ValueError
             if type(row["review_number"]) is not int or row["review_number"] != number:
-                raise ValueError
+                raise AIProviderError("근거의 리뷰 순서가 입력과 일치하지 않습니다.", code=AIErrorCode.EVIDENCE_REVIEWS)
             for kind in ("complaints", "praises"):
                 if not isinstance(row[kind], list):
                     raise ValueError
@@ -64,14 +66,17 @@ def parse_evidence(content, reviews):
                         if not isinstance(finding[field], str) or not finding[field].strip() or len(finding[field]) > maximum:
                             raise ValueError
                         finding[field] = finding[field].strip()
-                    if finding["quote"] not in review["review_text"] or finding["label"] in labels:
+                    if finding["quote"] not in review["review_text"]:
+                        raise AIProviderError("인사이트 인용문이 원문과 일치하지 않습니다.", code=AIErrorCode.EVIDENCE_QUOTE)
+                    if finding["label"] in labels:
                         raise ValueError
                     labels.add(finding["label"])
             if review["sentiment"] == "negative" and not row["complaints"]:
-                raise ValueError
+                raise AIProviderError("부정 리뷰의 불편 근거가 누락되었습니다.", code=AIErrorCode.EVIDENCE_COMPLAINT)
         return rows
     except (ValueError, TypeError, KeyError, RecursionError):
-        raise AIProviderError("리뷰별 인사이트 근거가 입력과 일치하지 않습니다.") from None
+        raise AIProviderError("리뷰별 인사이트 근거가 입력과 일치하지 않습니다.",
+                              code=AIErrorCode.EVIDENCE_FORMAT) from None
 
 
 def check_coverage(narrative, evidence):
@@ -83,11 +88,11 @@ def check_coverage(narrative, evidence):
     complaints = {f["label"] for row in evidence for f in row["complaints"]}
     praises = {f["label"] for row in evidence for f in row["praises"]}
     if any(not any(label in issue for issue in narrative["issues"]) for label in complaints):
-        raise AIProviderError("인사이트에 추출된 불편이 누락되었습니다.")
+        raise AIProviderError("인사이트에 추출된 불편이 누락되었습니다.", code=AIErrorCode.ISSUE_COVERAGE)
     if not complaints and (narrative["issues"] or narrative["improvement_suggestions"]):
-        raise AIProviderError("근거 없는 불편 또는 개선 제안이 포함되었습니다.")
+        raise AIProviderError("근거 없는 불편 또는 개선 제안이 포함되었습니다.", code=AIErrorCode.UNGROUNDED_ISSUE)
     if praises and not any(label in narrative["summary"] for label in praises):
-        raise AIProviderError("인사이트 요약에 확인된 장점이 누락되었습니다.")
+        raise AIProviderError("인사이트 요약에 확인된 장점이 누락되었습니다.", code=AIErrorCode.PRAISE_COVERAGE)
 
 
 def suggestion_candidates(evidence):

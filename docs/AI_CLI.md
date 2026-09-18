@@ -64,6 +64,47 @@ python main.py extract --product 이어폰 --date-from 2026-09-01 --date-to 2026
 
 ## 실행 경계와 종료 코드
 
+### 인사이트 추출 진단 로그
+
+`extract`는 `customer_review_analysis.insight_extractor` 로그에 요청 시작·성공과 실패를 기록한다.
+기존 `logging.level`·`logging.file` 설정을 사용하며, `CRA_LOG_FILE`이 있으면 해당 경로로 기록한다.
+기본 INFO에서 시작·성공, WARNING에서 재시도할 실패, ERROR에서 최종 실패를 확인할 수 있다.
+
+```text
+Insight request failed: stage=summary batch=1/1 code=INSIGHT_ISSUE_MISSING http_status=none attempt=2/4 retries=1 will_retry=True
+```
+
+- `stage=evidence`: 리뷰별 근거 추출과 검증. `batch=2/3`은 총 3개 근거 배치 중 2번째다.
+- `stage=summary`: 최종 요약·이슈·개선 제안 생성과 검증. 요약 요청은 `batch=1/1`이다.
+- `attempt=2/4`: 최대 4회 시도 중 2번째. `retries=1`은 첫 호출을 제외한 재시도 횟수다.
+- `will_retry`: 해당 실패 뒤 다시 요청할지 여부. 재시도 불가 오류는 첫 시도에 종료될 수 있다.
+- `http_status`: HTTP 응답이 있는 경우 숫자 상태 코드. 응답 검증·연결 오류 등은 `none`이다.
+
+| 코드 | 의미 |
+|---|---|
+| `AI_TIMEOUT`, `AI_CONNECTION_FAILED` | 요청 시간 초과 / 연결 실패 |
+| `AI_HTTP_ERROR`, `AI_RATE_LIMITED`, `AI_QUOTA_EXCEEDED` | HTTP 요청 오류 / 요청 제한 / 할당량 부족 |
+| `AI_OUTPUT_LIMIT`, `AI_REFUSAL`, `AI_OUTPUT_INTERRUPTED` | 출력 길이 제한 / 응답 거부 / 그 밖의 출력 중단 |
+| `AI_RESPONSE_INVALID`, `AI_ERROR` | 응답 구조 오류 / 분류되지 않은 제공자 오류 |
+| `EVIDENCE_FORMAT_INVALID`, `EVIDENCE_REVIEW_MISMATCH` | 근거 JSON·필드 오류 / 리뷰 수·순서 불일치 |
+| `EVIDENCE_QUOTE_MISMATCH`, `EVIDENCE_COMPLAINT_MISSING` | 원문에 없는 인용 / 부정 리뷰의 불편 근거 누락 |
+| `INSIGHT_FORMAT_INVALID` | 최종 응답 형식·길이 제한 위반 |
+| `INSIGHT_ISSUE_MISSING`, `INSIGHT_PRAISE_MISSING` | 추출한 불편 / 장점이 최종 결과에서 누락 |
+| `INSIGHT_UNGROUNDED_ISSUE`, `INSIGHT_SUGGESTION_INVALID` | 근거 없는 이슈 / 허용된 후보 외 개선 제안 |
+
+최종 CLI 오류에도 단계·배치·코드·실제 시도/재시도 횟수와 사용 가능한 HTTP 상태를 표시한다.
+
+```text
+[ERROR] AI 인사이트 추출에 실패했습니다. (stage=summary, batch=1/1, code=INSIGHT_ISSUE_MISSING, attempts=4, retries=3)
+```
+
+로그에는 API 키, 서버 주소, 제품명·리뷰·프롬프트·응답 원문, 외부 예외 메시지를 기록하지 않는다.
+제공자 오류는 `AIProviderError`의 `AIErrorCode` 열거형과 100~599의 정수 HTTP 상태만
+출력 경계에서 허용한다. 임의 문자열 코드나 잘못된 상태는 `AI_ERROR`/`none`으로 대체한다.
+재시도 정책·대기 시간·응답 검증 기준·최종 종료 코드 4는 유지한다.
+
+### 실행과 종료 코드 규칙
+
 - 요청 인자를 검증한 뒤 AI 설정·서비스를 구성하고 DB 연결을 연다. 명령이 끝나거나
   오류가 발생하면 연결을 닫는다. 추출은 읽기 스냅샷을 주입하고 AI 호출 전에 종료한다.
 - AI SDK는 `analyze`·`extract` 실행 시에만 불러온다. 조회와 CSV·JSONL 내보내기는
