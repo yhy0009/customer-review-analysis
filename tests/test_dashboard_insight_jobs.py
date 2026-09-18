@@ -14,7 +14,7 @@ from unittest.mock import Mock
 from scripts.serve_dashboard import seed_demo
 from src.dashboard_insights import GenerationConflict
 from src.dashboard_server import create_server
-from src.errors import ValidationError
+from src.errors import AIErrorCode, AIProviderError, ConfigError, ValidationError
 from src.models import DuplicatePolicy, InsightCitation, InsightEvidenceGroup, InsightResult, ReviewFilter, Sentiment
 from src.web_dashboard import DashboardData
 from src.sqlite_repository import SQLiteReviewRepository
@@ -101,6 +101,58 @@ class InsightJobTests(unittest.TestCase):
         self.assertEqual(self.generate()["status"], "succeeded")
         self.assertEqual(self.factory.call_count, 2)
 
+    def test_failure_guidance_survives_refresh_and_clears_after_manual_retry(self):
+        cases = [
+            (AIProviderError('private-key', code=AIErrorCode.QUOTA), 'AI_QUOTA_EXCEEDED', 'check_settings', '한도'),
+            (AIProviderError('private-review', code=AIErrorCode.TIMEOUT), 'AI_TIMEOUT', 'retry', '연결'),
+            (AIProviderError('private-response', code=AIErrorCode.EVIDENCE_QUOTE), 'EVIDENCE_QUOTE_MISMATCH', 'retry', '검증'),
+            (AIProviderError('private-endpoint', code=AIErrorCode.HTTP, http_status=401), 'AI_HTTP_ERROR', 'check_settings', '권한'),
+            (AIProviderError('private-response', code=AIErrorCode.OUTPUT_LIMIT), 'AI_OUTPUT_LIMIT', 'change_scope', '범위'),
+            (ConfigError('private-config'), 'GENERATION_CONFIG', 'check_settings', '다시 시작'),
+        ]
+        for error, code, action, message in cases:
+            with self.subTest(code=code):
+                self.extractor.extract_insights.side_effect = error
+                job = self.generate()
+                calls = self.factory.call_count
+                self.assertEqual(job['error_code'], code)
+                self.assertEqual(job['retry_action'], action)
+                self.assertIn(message, job['error'])
+                refreshed = self.snapshot()['generation']['job']
+                self.assertEqual(refreshed, job)
+                self.assertNotIn('private-', json.dumps(refreshed))
+                self.assertEqual(self.factory.call_count, calls)
+        self.extractor.extract_insights.side_effect = fake_insight
+        recovered = self.generate()
+        self.assertEqual(recovered['status'], 'succeeded')
+        for field in ('error', 'error_code', 'retry_action'):
+            self.assertIsNone(recovered[field])
+        self.assertIsNone(self.generate()['error_code'])  # cached success
+
+    def test_custom_error_metadata_cannot_reach_job_http_response(self):
+        error = AIProviderError('private-key private-review')
+        error.code = 'private-code\nFORGED'
+        error.http_status = 'private-status'
+        self.extractor.extract_insights.side_effect = error
+        job = self.generate()
+        server = create_server(self.data, 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+        try:
+            connection.request('GET', f"/api/insight-jobs/{job['id']}")
+            response = connection.getresponse()
+            payload = response.read().decode()
+            self.assertEqual(response.status, 200)
+        finally:
+            connection.close()
+        self.assertEqual(json.loads(payload)['error_code'], 'AI_ERROR')
+        self.assertNotIn('private-', payload)
+        self.assertNotIn('FORGED', payload)
+
     def change_source(self):
         with SQLiteReviewRepository(self.database) as repository:
             detail = repository.get_review(1)
@@ -162,7 +214,11 @@ class InsightJobTests(unittest.TestCase):
 
     def test_save_failure_releases_worker_for_retry(self):
         self.cache.write_text("not a directory")
-        self.assertEqual(self.generate()["status"], "failed")
+        job = self.generate()
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job['error_code'], 'INSIGHT_STORAGE')
+        self.assertEqual(job['retry_action'], 'check_storage')
+        self.assertIn('저장 폴더', job['error'])
         self.assertIsNone(self.data.jobs.active)
         self.cache.unlink()
         self.assertEqual(self.generate()["status"], "succeeded")

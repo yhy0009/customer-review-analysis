@@ -39,6 +39,10 @@ export function generationView(generation, insightStatus) {
   if (generation.job?.status === "running") return {disabled: true, label: "생성 중…", message: `분석 완료 리뷰 ${number(generation.job.review_count)}건으로 생성 중입니다. 다른 조건을 조회해도 작업은 계속됩니다.`};
   if (insightStatus === "available") return {disabled: true, label: "저장된 결과 사용 중", message: "현재 데이터와 일치하는 인사이트를 불러왔습니다. 추가 AI 호출은 하지 않습니다."};
   if (!generation.review_count) return {disabled: true, label: "생성 대상 없음", message: "현재 조건에 분석 완료 리뷰가 없습니다."};
-  if (generation.job?.status === "failed") return {disabled: false, label: "다시 생성", message: generation.job.error};
+  if (generation.job?.status === "failed") {
+    const needsCheck = ["check_settings", "check_storage", "change_scope"].includes(generation.job.retry_action);
+    return {disabled: false, label: needsCheck ? "확인 후 다시 생성" : "다시 생성",
+      message: `${generation.job.error || "인사이트 생성에 실패했습니다. 다시 시도하세요."} 다시 생성하면 AI를 새로 호출하며 사용량이 발생할 수 있습니다.`};
+  }
   return {disabled: false, label: "현재 조건으로 인사이트 생성", message: `분석 완료 리뷰 ${number(generation.review_count)}건 · 최대 ${number(generation.limit)}건. 버튼을 누르면 설정된 AI로 리뷰를 전송하며 사용량이 발생할 수 있습니다.`};
 }

@@ -41,3 +41,20 @@ test("generation requires explicit action and does not offer duplicate calls", (
   assert.equal(generationView({...data, job: {status: "running", review_count: 6}}, "missing").disabled, true);
   assert.equal(generationView({...data, job: {status: "failed", error: "실패"}}, "stale").label, "다시 생성");
 });
+
+test("failed generation explains required checks and cost of a manual retry", () => {
+  const base = {enabled: true, review_count: 6, limit: 50};
+  for (const action of ["check_settings", "check_storage", "change_scope"]) {
+    const job = {status: "failed", error: "설정 확인이 필요합니다.", retry_action: action};
+    const view = generationView({...base, job}, "missing");
+    assert.equal(view.label, "확인 후 다시 생성");
+    assert.equal(view.disabled, false);
+    assert.match(view.message, /설정 확인/);
+    assert.match(view.message, /사용량/);
+    assert.equal(generationView({...base, job}, "available").disabled, true);
+  }
+  const legacy = generationView({...base, job: {status: "failed"}}, "missing");
+  assert.match(legacy.message, /실패/);
+  assert.doesNotMatch(legacy.message, /undefined/);
+  assert.equal(legacy.label, "다시 생성");
+});
