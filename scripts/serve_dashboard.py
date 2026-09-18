@@ -18,13 +18,15 @@ from src.sqlite_repository import SQLiteReviewRepository
 from src.web_dashboard import DashboardData, encode, load_insight_artifact, select_analyzed, source_hash
 
 
-def live_extractor():
-    """Load credentials only in an explicitly requested background generation."""
+def configured_generation():
+    """Freeze options and provenance together for an explicitly enabled server."""
     from src.config import load_config, load_env_file
-    from src.insight_extractor import AIInsightExtractor
+    from src.insight_extractor import AIInsightExtractor, PROMPT_VERSION
+    from src.insight_provenance import generation_profile
     from src.models import AnalysisOptions
     load_env_file()
-    return AIInsightExtractor(AnalysisOptions(**load_config("config/config.json")["ai"]))
+    options = AnalysisOptions(**load_config("config/config.json")["ai"])
+    return lambda: AIInsightExtractor(options), generation_profile(options, PROMPT_VERSION)
 
 
 def seed_demo(directory):
@@ -75,16 +77,16 @@ def main():
                 resolve_project_path(args.insight_file) if args.insight_file else None)
             cache = (resolve_project_path(args.insight_cache or "output/dashboard-insights")
                      if args.insight_cache or args.enable_insights else None)
+            factory, profile = configured_generation() if args.enable_insights else (None, None)
             data = DashboardData(database, insight_path=insight, demo=args.demo, cache_dir=cache,
-                                 extractor_factory=live_extractor if args.enable_insights else None,
-                                 insight_limit=args.insight_limit)
+                                 extractor_factory=factory, generation_profile=profile, insight_limit=args.insight_limit)
             with create_server(data, args.port) as server:
                 print(f"Dashboard: http://127.0.0.1:{server.server_port} ({'합성 데이터 데모' if args.demo else 'SQLite 조회'})", flush=True)
                 server.serve_forever()
     except KeyboardInterrupt:
         return 0
-    except (AppError, OSError) as exc:
-        print(f"대시보드 시작 실패: {type(exc).__name__}. DB·인사이트 경로와 포트를 확인하세요.", file=sys.stderr)
+    except (AppError, OSError, ImportError) as exc:
+        print(f"대시보드 시작 실패: {type(exc).__name__}. DB·인사이트 경로·포트와 AI 설정·의존성을 확인하세요.", file=sys.stderr)
         return 1
 
 
