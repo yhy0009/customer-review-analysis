@@ -69,6 +69,16 @@ export function provenanceText(profile) {
   return `요청 모델 ${profile.model} · ${profile.provider} · 프롬프트 ${profile.prompt_version}${reasoning}`;
 }
 
+export function exportView(data) {
+  if (!data) return {disabled: true, message: "이 서버에서는 리뷰 파일 다운로드를 지원하지 않습니다."};
+  if (data.status === "too_large") return {disabled: true,
+    message: `현재 조건 ${number(data.row_count)}건은 다운로드 한도 ${number(data.limit)}건을 초과합니다. 필터로 범위를 줄여 주세요.`};
+  if (!data.row_count) return {disabled: true, message: "현재 조건에 다운로드할 리뷰가 없습니다."};
+  if (data.status !== "available" || !data.urls?.csv || !data.urls?.jsonl) return {disabled: true, message: "리뷰 파일을 준비하지 못했습니다. 새로고침 후 다시 시도하세요."};
+  return {disabled: false,
+    message: `현재 조건 전체 ${number(data.row_count)}건 · 조회 당시 리뷰·분석 결과 · 최대 ${number(data.limit)}건`};
+}
+
 export function generationView(generation, insightStatus) {
   if (!generation?.enabled) return {disabled: true, label: "생성 비활성", message: "현재는 저장된 인사이트를 조회합니다."};
   if (generation.job?.status === "running") return {disabled: true, label: "생성 중…", message: `분석 완료 리뷰 ${number(generation.job.review_count)}건으로 생성 중입니다. 다른 조건을 조회해도 작업은 계속됩니다.`};
