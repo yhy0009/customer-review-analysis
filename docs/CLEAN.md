@@ -68,6 +68,12 @@ processed=3 succeeded=1 skipped=0 failed=0 rejected=2
 커밋은 유지한다. `skip`으로 재실행하면 이미 저장된 Clean을 건너뛰고 나머지를 처리한다.
 명령이 끝나거나 오류·사용자 중단이 발생하면 런타임이 DB 연결을 닫는다.
 
+정제 결과 저장·제외 처리 전에 처음 읽은 원본과 현재 원본을 같은 쓰기 트랜잭션에서
+비교한다. 정제 도중 다른 `import --policy upsert` 실행으로 원본이 바뀌었다면 이전
+결과를 저장하거나 기존 Clean·Analysis를 삭제하지 않는다. 해당 항목은
+`RAW_REVIEW_CHANGED` 오류(`retryable=True`)와 `failed`로 집계하며, 나머지 항목은 계속
+처리한다. 종료 코드는 1이며 `clean`을 다시 실행하면 최신 원본을 처리한다.
+
 ## 검증
 
 ```bash

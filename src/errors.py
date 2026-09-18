@@ -21,6 +21,10 @@ class StorageError(AppError):
     """Raised for repository connection, schema, or persistence failures."""
 
 
+class RawReviewChangedError(StorageError):
+    """A cleaning result no longer matches the stored original; retry it."""
+
+
 class AIProviderError(AppError):
     """Raised after an AI provider request cannot be completed."""
 
@@ -36,5 +40,6 @@ __all__ = [
     "InputFileError",
     "OutputError",
     "StorageError",
+    "RawReviewChangedError",
     "ValidationError",
 ]

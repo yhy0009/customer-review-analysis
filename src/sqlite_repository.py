@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from src.config import get_logger
-from src.errors import StorageError, ValidationError
+from src.errors import RawReviewChangedError, StorageError, ValidationError
 
 from typing import Any, Iterator, List, Mapping, Optional, Sequence
 from collections import Counter, defaultdict
@@ -428,16 +428,25 @@ class SQLiteReviewRepository:
 
     def save_clean_reviews(
         self, reviews: Sequence[CleanReview], policy: DuplicatePolicy,
+        *, expected_raw: Optional[Sequence[RawReview]] = None,
     ) -> BatchOperationResult:
         """Persist cleaned records under their original Raw IDs, atomically."""
         if not isinstance(policy, DuplicatePolicy):
             raise ValidationError("policy must be a DuplicatePolicy value")
+        if expected_raw is not None and (
+            len(expected_raw) != len(reviews)
+            or any(raw.id != review.id for raw, review in zip(expected_raw, reviews))
+        ):
+            raise ValidationError("expected_raw must match the cleaned review IDs in order")
         connection = self._require_connection()
         succeeded = skipped = failed = 0
         errors: List[ItemError] = []
         try:
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if expected_raw is not None:
+                    for raw in expected_raw:
+                        self._check_raw_unchanged(connection, raw)
                 for index, review in enumerate(reviews, start=1):
                     connection.execute("SAVEPOINT clean_item")
                     try:
@@ -493,14 +502,30 @@ class SQLiteReviewRepository:
         return BatchOperationResult(processed=len(reviews), succeeded=succeeded,
                                     skipped=skipped, failed=failed, errors=errors)
 
-    def mark_cleaning_rejected(self, review_id: int) -> None:
+    def _check_raw_unchanged(self, connection: sqlite3.Connection, expected: RawReview) -> None:
+        """Compare original values while the caller holds the write transaction."""
+        fields = ("source_review_id", "product_name", "review_date", "rating",
+                  "review_text", "raw_payload")
+        row = connection.execute("SELECT * FROM raw_reviews WHERE id=?", (expected.id,)).fetchone()
+        if row is None or row["source_file"] != expected.source_file or any(
+            row[field] != _json_dump(getattr(expected, field)) for field in fields
+        ):
+            raise RawReviewChangedError("정제 중 원본이 변경되었습니다. clean 명령을 다시 실행하세요.")
+
+    def mark_cleaning_rejected(
+        self, review_id: int, *, expected_raw: Optional[RawReview] = None,
+    ) -> None:
         """Persist a cleaning rejection without leaving stale query/AI targets."""
         _validate_id(review_id)
+        if expected_raw is not None and expected_raw.id != review_id:
+            raise ValidationError("expected_raw must match the rejected review ID")
         connection = self._require_connection()
         now = _utc_iso(datetime.now(timezone.utc))
         try:
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if expected_raw is not None:
+                    self._check_raw_unchanged(connection, expected_raw)
                 if connection.execute("SELECT id FROM raw_reviews WHERE id=?", (review_id,)).fetchone() is None:
                     raise StorageError("정제 대상 원본 리뷰를 찾을 수 없습니다.")
                 # Foreign-key cascade also removes any previous analysis.

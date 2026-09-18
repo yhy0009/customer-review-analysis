@@ -2,7 +2,8 @@
 
 from dataclasses import replace
 
-from src.models import CleanBatchResult, CleanRequest, DuplicatePolicy
+from src.errors import RawReviewChangedError
+from src.models import CleanBatchResult, CleanRequest, DuplicatePolicy, ItemError
 from src.services import ReviewCleaner
 from src.storage import ReviewRepository
 
@@ -37,16 +38,29 @@ class CleanService:
             # A single-item call distinguishes rejection from cleaning failure
             # and identifies stored successes without changing the shared DTOs.
             cleaned = self.cleaner.clean_reviews([raw], request.options)
-            if cleaned.rejected:
-                self.repository.mark_cleaning_rejected(raw.id)
+            saved = None
+            try:
+                if cleaned.rejected:
+                    self.repository.mark_cleaning_rejected(raw.id, expected_raw=raw)
+                if cleaned.reviews:
+                    saved = self.repository.save_clean_reviews(
+                        cleaned.reviews, request.options.policy, expected_raw=[raw],
+                    )
+            except RawReviewChangedError:
+                failed += 1
+                errors.append(ItemError(
+                    item_ref=str(raw.id), code="RAW_REVIEW_CHANGED",
+                    message="정제 중 원본이 변경되었습니다. clean 명령을 다시 실행하세요.",
+                    retryable=True,
+                ))
+                continue
             rejected += cleaned.rejected
             failed += cleaned.failed
             skipped += cleaned.skipped
             errors.extend(replace(error, item_ref=str(raw.id)) for error in cleaned.errors)
-            if not cleaned.reviews:
+            if saved is None:
                 continue
 
-            saved = self.repository.save_clean_reviews(cleaned.reviews, request.options.policy)
             failed += saved.failed
             skipped += saved.skipped
             errors.extend(replace(error, item_ref=str(raw.id)) for error in saved.errors)

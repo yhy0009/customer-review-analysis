@@ -129,12 +129,12 @@ class CleanServiceTests(unittest.TestCase):
         rows = self.seed(self.raw('first'), self.raw('second'))
         save = self.repository.save_clean_reviews
         calls = 0
-        def fail_second(reviews, policy):
+        def fail_second(reviews, policy, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise StorageError('simulated database failure')
-            return save(reviews, policy)
+            return save(reviews, policy, **kwargs)
         with patch.object(self.repository, 'save_clean_reviews', side_effect=fail_second):
             with self.assertRaises(StorageError):
                 self.run_clean()

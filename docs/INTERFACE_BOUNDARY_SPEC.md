@@ -352,6 +352,12 @@ Clean이 있는 ID는 정제 전에 건너뛰고, `upsert`일 때는 전체를 �
 합산한다. 모든 `ItemError.item_ref`는 원본 내부 ID다. 예기치 않은 정제 실패는 `failed`로
 집계하며 기존 상태를 유지한다. DB 장애는 중단·전파하고 앞선 항목의 커밋은 유지한다.
 
+서비스는 정제 결과 저장·제외 시 읽었던 원본을 `expected_raw`로 전달한다. 저장소는
+원본 비교와 쓰기를 같은 쓰기 트랜잭션에서 수행한다. 값이 바뀌거나 원본이 사라졌다면
+`RawReviewChangedError`를 발생시키고 쓰기를 취소한다. 서비스는 이를 재시도 가능한
+`RAW_REVIEW_CHANGED` 항목 오류와 `failed`로 집계하고 다음 원본을 처리한다.
+다음 `clean` 실행에서 최신 원본을 다시 읽는다. 기존 호출은 선택 인자를 생략할 수 있다.
+
 ### 7.2 분석 함수
 
 ```python
@@ -396,9 +402,12 @@ class ReviewRepository(Protocol):
         self,
         reviews: Sequence[CleanReview],
         policy: DuplicatePolicy,
+        *, expected_raw: Sequence[RawReview] | None = None,
     ) -> BatchOperationResult: ...
 
-    def mark_cleaning_rejected(self, review_id: int) -> None: ...
+    def mark_cleaning_rejected(
+        self, review_id: int, *, expected_raw: RawReview | None = None,
+    ) -> None: ...
 
     def fetch_clean_reviews(
         self,
