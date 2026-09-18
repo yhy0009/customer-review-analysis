@@ -4,13 +4,15 @@
 
 `import`, `clean`, `dashboard`에 공통 결과 출력 어댑터와 서비스 주입 방식의
 CLI 등록 경계를 제공한다. `ImportService`는 수집기와 원본 저장소를 연결한다.
-정제·차트·리포트 생성 모듈을 조율하는 서비스는 후속 작업이다.
+`CleanService`는 저장된 원본을 정제하고 성공·제외 상태를 저장한다.
+차트·리포트 생성 모듈을 조율하는 대시보드 서비스는 후속 작업이다.
 기존 `ApplicationServices`, Request, Result 계약은 유지한다.
 
-**기본 CLI는 import/analyze/extract/list/show/stats/export 7개를 실행한다.**
+**기본 CLI는 import/clean/analyze/extract/list/show/stats/export 8개를 실행한다.**
 `import`는 기본 생성 함수로 `collector.load_reviews`와 `ImportService`를 구성한다.
 사용법과 중복 정책은 [원본 리뷰 적재 안내](IMPORT.md)를 따른다.
-`clean`, `dashboard`는 실제 서비스 생성 함수를 등록하기 전까지 미연결 오류(종료 코드 2)를 반환한다.
+`clean`은 `cleaner.clean_reviews`와 `CleanService`를 기본 연결한다([리뷰 정제 안내](CLEAN.md)).
+`dashboard`는 실제 서비스 생성 함수를 등록하기 전까지 미연결 오류(종료 코드 2)를 반환한다.
 서비스 준비가 끝난 명령부터 개별 등록할 수 있다.
 
 ## 서비스 등록
@@ -47,8 +49,8 @@ def run_import_cli(argv, make_service):
 ```
 
 동일한 방식으로 `clean_factory`, `dashboard_factory`를 함께 전달할 수 있다.
-`import_factory`를 생략하면 기본 import 서비스가 등록되고, 전달하면 해당 생성 함수로 교체된다.
-`clean_factory`와 `dashboard_factory`는 생략하면 등록되지 않는다.
+`import_factory`·`clean_factory`를 생략하면 해당 기본 서비스가 등록되고, 전달하면 교체된다.
+`dashboard_factory`는 생략하면 등록되지 않는다.
 어느 생성 함수든 명시적으로 `None`을 전달하면 해당 파이프라인 명령을 등록하지 않는다.
 기존 analyze/extract/list/show/stats/export 6개 명령은 매핑에 유지된다.
 구체 서비스와 선택적 패키지의 import는 생성 함수 내부에서 수행해, 도움말이나 다른
@@ -65,6 +67,8 @@ def run_import_cli(argv, make_service):
 생성 함수는 명령을 실행할 때마다 호출된다. 서비스는 전달받은 저장소를 빌려 사용하며
 직접 닫거나 전역에 보관하지 않는다. 저장·배치·트랜잭션 동작은 기존 Repository 계약을
 따른다. 런타임이 명령 전체를 하나의 쓰기 트랜잭션으로 감싸지는 않는다.
+`CleanService`는 원본 한 건마다 정제·저장을 수행한다. 행 오류는 결과에 집계하고,
+DB 장애는 중단·전파한다. 앞서 저장된 성공·제외 결과는 유지된다.
 
 - ImportRequest에는 프로젝트 루트 기준 절대 입력 경로와 중복 정책이 들어 있다.
 - CleanRequest.options에는 CLI/설정에서 결정된 중복 정책과 최소 길이가 들어 있다.
@@ -109,6 +113,7 @@ API 키나 원문 전체를 넣지 않아야 한다. 터미널 제어 문자는 
 ```bash
 python -m unittest tests.test_pipeline_handlers tests.test_pipeline_runtime -v
 python -m unittest tests.test_import_service tests.test_import_cli -v
+python -m unittest tests.test_clean_service tests.test_clean_cli tests.test_clean_rejection_storage -v
 python -m unittest discover -s tests -q
 ```
 
@@ -116,4 +121,5 @@ python -m unittest discover -s tests -q
 성공·실패·중단 시 연결 종료와 다른 작업 디렉터리에서의 경로 해석을 확인한다.
 `python -S` 프로세스에서도 서비스 대역을 주입해 선택적 패키지 없이 연결 경계가 동작하는지
 검증한다. import 테스트는 실제 CSV/Excel과 SQLite를 사용해 기본 연결·중복 정책·오류를 확인한다.
-API를 호출하지 않으며, 정제·대시보드 서비스의 완료 검증은 후속 작업이다.
+정제 테스트는 저장 결과 집계·중복 정책·제외 상태·재시도와 import부터 조회까지 확인한다.
+API를 호출하지 않으며, 대시보드 CLI 서비스의 완료 검증은 후속 작업이다.

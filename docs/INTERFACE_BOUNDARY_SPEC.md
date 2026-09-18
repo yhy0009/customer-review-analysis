@@ -269,7 +269,7 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 기본 `export` 명령에 연결됐다.
 기존 `AnalysisService`·`InsightService`도 기본 `analyze`·`extract`에 연결됐다.
 `ImportService`는 수집기와 원본 저장소를 연결하며 기본 `import` 명령에 등록됐다.
-`clean`, `dashboard`는 미연결 오류를 유지한다.
+`CleanService`도 기본 `clean` 명령에 등록됐다. `dashboard`는 미연결 오류를 유지한다.
 전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
 
 ### 5.3 CLI 명령 인자
@@ -345,6 +345,13 @@ clean_reviews(
 - `cleaner`: 정규화와 유효성 판정
 - `storage`: 중복 탐지, `skip`/`upsert`, 트랜잭션
 
+`CleanService`는 모든 저장 원본(REJECTED 포함)을 ID 순서로 처리한다. `skip`일 때 이미
+Clean이 있는 ID는 정제 전에 건너뛰고, `upsert`일 때는 전체를 다시 검증한다.
+원본 한 건마다 정제 후 성공 리뷰를 저장하거나 `mark_cleaning_rejected()`로 제외 상태를 기록한다.
+실제 저장 성공만 `succeeded`와 `reviews`에 포함하고, 저장 건너뛰기·행 오류·정제 제외를
+합산한다. 모든 `ItemError.item_ref`는 원본 내부 ID다. 예기치 않은 정제 실패는 `failed`로
+집계하며 기존 상태를 유지한다. DB 장애는 중단·전파하고 앞선 항목의 커밋은 유지한다.
+
 ### 7.2 분석 함수
 
 ```python
@@ -391,6 +398,8 @@ class ReviewRepository(Protocol):
         policy: DuplicatePolicy,
     ) -> BatchOperationResult: ...
 
+    def mark_cleaning_rejected(self, review_id: int) -> None: ...
+
     def fetch_clean_reviews(
         self,
         filters: ReviewFilter | None = None,
@@ -436,6 +445,8 @@ DuplicatePolicy = Literal["skip", "upsert"]
   해당 Raw Review를 다시 정제 대상으로 만든다.
 - AI 입력에 영향을 주는 Clean 필드가 변경되면 기존 Analysis Result를 삭제하고
   상태를 `CLEANED`로 되돌린다.
+- 정제 제외 저장은 Raw를 보존하고 상태를 `REJECTED`로 바꾸며 기존 Clean·Analysis를
+  같은 트랜잭션에서 삭제한다. 기존 스키마 v1을 유지하며 제외 사유는 서비스 결과에 포함한다.
 - 데이터 한 건의 유효성·중복 문제는 행 단위 savepoint로 격리하고 성공 건은 커밋한다.
 - 연결 실패나 스키마 오류 같은 저장소 인프라 문제는 배치 전체를 롤백하고
   `StorageError`를 발생시킨다.
@@ -547,6 +558,9 @@ RAW ──► CLEANED ──► ANALYZED
 
 `REJECTED`는 입력 데이터가 정제 조건을 통과하지 못한 경우이고,
 `ANALYSIS_FAILED`는 재시도 가능한 AI 처리 실패를 뜻한다.
+`clean` 재실행은 REJECTED도 다시 검사한다. 기준 완화 또는 원본 수정 뒤 통과하면 같은 ID로
+CLEANED가 된다. `clean --policy upsert`에서 기존 정제 리뷰가 제외되면 REJECTED가 되고
+기존 정제·분석 결과가 삭제된다. `skip`은 기존 Clean 리뷰를 재검증하지 않는다.
 
 ### 11.2 공통 예외 계층
 
@@ -837,8 +851,8 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 ## 24. 수집·정제·대시보드 공통 CLI 연결 경계
 
-세 명령에 공통 결과 출력과 선택적 등록 경계를 제공한다. import는 구체 서비스까지 연결됐다.
-기존 Request·Result·ApplicationServices·Repository Protocol과 명령별 소유권은 유지한다.
+세 명령에 공통 결과 출력과 선택적 등록 경계를 제공한다. import·clean은 구체 서비스까지 연결됐다.
+기존 Request·Result·ApplicationServices 계약은 유지하며, Repository에는 정제 제외 상태 기록 메서드를 추가한다.
 
 - `build_import_handler`, `build_clean_handler`, `build_dashboard_handler`는 요청 생성·
   공통 오류 처리와 함께 결과를 stdout에 표시한다. `build_handlers(services)`도 이를 사용한다.
@@ -846,8 +860,8 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   표시한다. failed 또는 rejected가 있으면 기존 배치 계약에 따라 종료 코드 1이다.
 - `format_dashboard_result()`는 반환된 산출물의 종류·포맷·경로를 표시한다.
   빈 목록은 파일이 생성되지 않았음을 표시하며 정상 반환(0)으로 처리한다.
-- `build_default_handlers()`는 기본 import 생성 함수를 사용한다. `import_factory`를 전달하면
-  교체하고, `clean_factory`·`dashboard_factory`를 전달하면 해당 명령을 추가한다.
+- `build_default_handlers()`는 기본 import·clean 생성 함수를 사용한다. 해당 factory를 전달하면
+  교체하고, `dashboard_factory`를 전달하면 해당 명령을 추가한다.
   명시적인 `None`은 해당 파이프라인 명령을 등록하지 않는다. 생성 함수는
   `(repository, config)`를 받아 기존 요청을 소비하는 서비스 메서드를 반환한다.
 - 요청 검증 후 명령별 SQLite 연결을 열고 생성 함수를 호출한다. 서비스는 연결을 빌려 쓰며
@@ -855,9 +869,9 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 - 생성 함수와 서비스를 실행할 때 발생한 ImportError는 의존성 안내와 코드 2로 처리한다.
   기본 매핑 생성만으로 구체 기능 모듈이나 선택적 SDK를 import하지 않는다.
 
-인자 없는 기본 실행은 import를 포함한 7개 명령을 등록한다. `ImportService`는 수집기의
+인자 없는 기본 실행은 import·clean을 포함한 8개 명령을 등록한다. `ImportService`는 수집기의
 원본 목록과 요청의 중복 정책을 `save_raw_reviews()`에 전달하고 배치 결과를 그대로 반환한다.
-날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다. clean·dashboard의 기본 연결은 후속 단계다.
+날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다. `dashboard`의 기본 연결은 후속 단계다.
 자세한 연결 규약과 검증 방법은
 [수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.
 

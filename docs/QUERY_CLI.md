@@ -54,8 +54,8 @@ python main.py --config config/query.json stats
 `export`도 기본 CLI에 연결돼 있으며 [내보내기 안내](EXPORT.md)를 따른다.
 `analyze`·`extract`도 [AI CLI 실행 안내](AI_CLI.md)에 따라 기본 실행할 수 있다.
 `import`도 [원본 리뷰 적재 안내](IMPORT.md)에 따라 기본 실행할 수 있다.
-`clean`, `dashboard`의 기본 CLI 연결은 후속 작업이다.
-기존 모듈을 이용해 적재한 SQLite DB를 조회할 수 있다. 원본만 저장되고 정제가 끝나지 않은
+적재 후 `python main.py clean`으로 정제하면 조회 대상에 포함된다([리뷰 정제 안내](CLEAN.md)).
+`dashboard`의 기본 CLI 연결은 후속 작업이다. 원본만 저장되고 정제가 끝나지 않은
 리뷰는 조회에 포함되지 않는다. AI 팀이 사용하는 별도 분석 핸들러 주입 방식은 유지한다.
 
 ## 검증
