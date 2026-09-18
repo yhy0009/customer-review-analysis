@@ -493,6 +493,24 @@ class SQLiteReviewRepository:
         return BatchOperationResult(processed=len(reviews), succeeded=succeeded,
                                     skipped=skipped, failed=failed, errors=errors)
 
+    def mark_cleaning_rejected(self, review_id: int) -> None:
+        """Persist a cleaning rejection without leaving stale query/AI targets."""
+        _validate_id(review_id)
+        connection = self._require_connection()
+        now = _utc_iso(datetime.now(timezone.utc))
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute("SELECT id FROM raw_reviews WHERE id=?", (review_id,)).fetchone() is None:
+                    raise StorageError("정제 대상 원본 리뷰를 찾을 수 없습니다.")
+                # Foreign-key cascade also removes any previous analysis.
+                connection.execute("DELETE FROM clean_reviews WHERE id=?", (review_id,))
+                connection.execute("UPDATE raw_reviews SET status='REJECTED', updated_at=? WHERE id=?",
+                                   (now, review_id))
+        except sqlite3.Error as exc:
+            raise StorageError("정제 제외 상태를 저장할 수 없습니다.") from exc
+        self._logger.info("Cleaning rejected: review_id=%d", review_id)
+
     def save_analysis(self, result: AnalysisResult) -> None:
         result.__post_init__()
         connection = self._require_connection()

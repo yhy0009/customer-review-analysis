@@ -49,6 +49,10 @@ class ReviewRepository(Protocol):
     ) -> BatchOperationResult:
         ...
 
+    def mark_cleaning_rejected(self, review_id: int) -> None:
+        """Keep Raw, remove dependent Clean/Analysis, and set REJECTED atomically."""
+        ...
+
     def fetch_clean_reviews(
         self,
         filters: Optional[ReviewFilter] = None,

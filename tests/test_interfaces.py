@@ -78,6 +78,9 @@ class FakeRepository:
     def save_clean_reviews(self, reviews, policy):
         return BatchOperationResult(processed=0, succeeded=0)
 
+    def mark_cleaning_rejected(self, review_id):
+        return None
+
     def fetch_clean_reviews(self, filters=None, *, limit=None):
         return []
 
