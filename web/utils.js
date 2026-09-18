@@ -1,23 +1,58 @@
 export const labels = {positive: "긍정", neutral: "중립", negative: "부정"};
 export const number = value => new Intl.NumberFormat("ko-KR").format(value);
 export const percent = value => new Intl.NumberFormat("ko-KR", {style: "percent", maximumFractionDigits: 1}).format(value);
+const filterKeys = ["product_name", "date_from", "date_to", "sentiment", "rating", "rating_min"];
 export function dateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "시각 정보 없음" : new Intl.DateTimeFormat("ko-KR", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}).format(date);
 }
 export function queryString(filters, page = 1) {
   const params = new URLSearchParams();
-  for (const key of ["product_name", "date_from", "date_to", "sentiment"]) {
+  for (const key of filterKeys) {
     if (filters[key]) params.set(key, filters[key]);
   }
   params.set("page", String(page));
   return params.toString();
+}
+export function readQuery(search) {
+  const params = new URLSearchParams(search), filters = {};
+  const invalid = () => { throw new Error("주소의 조회 조건이 올바르지 않습니다. 필터를 다시 선택하거나 초기화하세요."); };
+  for (const key of [...filterKeys, "page"]) if (params.getAll(key).length > 1) invalid();
+  for (const key of filterKeys) if (params.get(key)) filters[key] = params.get(key);
+  if ((filters.product_name || "").length > 200) invalid();
+  if (filters.sentiment && !Object.hasOwn(labels, filters.sentiment)) invalid();
+  for (const key of ["date_from", "date_to"]) {
+    if (!filters[key]) continue;
+    const date = new Date(`${filters[key]}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(filters[key]) || filters[key].startsWith("0000")
+        || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== filters[key]) invalid();
+  }
+  if (filters.date_from && filters.date_to && filters.date_from > filters.date_to) invalid();
+  for (const key of ["rating", "rating_min"]) if (filters[key] && !/^[1-5]$/.test(filters[key])) invalid();
+  if (filters.rating && filters.rating_min) invalid();
+  const rawPage = params.get("page") ?? "1", page = Number(rawPage);
+  if (!/^[1-9]\d*$/.test(rawPage) || !Number.isSafeInteger(page)) invalid();
+  return {filters, page};
+}
+export function ratingSelection(filters) {
+  return filters.rating ? `rating:${filters.rating}` : filters.rating_min ? `rating_min:${filters.rating_min}` : "";
+}
+export function formFilters(values) {
+  const filters = Object.fromEntries(filterKeys.filter(key => !key.startsWith("rating")).map(key => [key, values[key] || ""]));
+  if (values.rating_filter) {
+    if (!/^(rating|rating_min):[1-5]$/.test(values.rating_filter)) throw new Error("별점 조건을 확인하세요.");
+    const [key, value] = values.rating_filter.split(":");
+    filters[key] = value;
+  }
+  return readQuery(queryString(filters)).filters;
 }
 export function scopeText(filters) {
   const parts = [filters.product_name ? `제품명 포함: ${filters.product_name}` : "전체 제품"];
   if (filters.date_from || filters.date_to) parts.push(`${filters.date_from || "시작 제한 없음"} ~ ${filters.date_to || "종료 제한 없음"}`);
   else parts.push("전체 기간");
   parts.push(labels[filters.sentiment] || "전체 감정");
+  if (filters.rating) parts.push(`별점 ${filters.rating}점`);
+  else if (filters.rating_min) parts.push(`별점 ${filters.rating_min}점 이상`);
   return parts.join(" · ");
 }
 export const insightStates = {
