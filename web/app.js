@@ -1,7 +1,7 @@
-import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView, provenanceText} from "./utils.js";
+import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView, provenanceText, readQuery, formFilters, ratingSelection} from "./utils.js";
 
 const $ = selector => document.querySelector(selector);
-const state = {filters: {}, page: 1, snapshot: null, view: "overview", controller: null, request: 0, reviewRequest: 0};
+const state = {filters: {}, page: 1, search: null, snapshot: null, view: "overview", controller: null, request: 0, reviewRequest: 0};
 const titles = {
   overview: ["분석 개요", "고객의 목소리를 한눈에", "리뷰의 흐름을 읽고, 다음 개선점을 발견하세요."],
   reviews: ["리뷰 탐색", "한 문장 뒤에 있는 고객 경험", "저장된 리뷰와 분석 결과를 함께 살펴보세요."],
@@ -239,6 +239,8 @@ async function load() {
     const data = await readJSON(`/api/snapshot?${queryString(state.filters, state.page)}`, {signal: state.controller.signal});
     if (request !== state.request) return;
     if (data.schema_version !== 1) throw new Error("지원하지 않는 대시보드 데이터 버전입니다.");
+    const lastPage = Math.max(1, data.page.total_pages);
+    if (state.page > lastPage) return applyQuery(state.filters, lastPage, true);
     state.snapshot = data;
     render(data);
     $("#content").hidden = false;
@@ -278,17 +280,49 @@ async function openReview(id) {
   }
 }
 
+function syncFilterForm() {
+  const form = $("#filters");
+  for (const key of ["product_name", "date_from", "date_to", "sentiment"]) form.elements.namedItem(key).value = state.filters[key] || "";
+  form.elements.namedItem("rating_filter").value = ratingSelection(state.filters);
+}
+function applyQuery(filters, page = 1, replace = false) {
+  state.filters = filters; state.page = page;
+  const url = new URL(location.href);
+  url.search = queryString(filters, page);
+  if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
+  state.search = location.search;
+  syncFilterForm();
+  return load();
+}
+function restoreLocation() {
+  updateNavigation();
+  state.search = location.search;
+  try {
+    const {filters, page} = readQuery(location.search);
+    state.filters = filters; state.page = page;
+    syncFilterForm();
+    load();
+  } catch (error) {
+    state.controller?.abort(); ++state.request;
+    clearTimeout(generationTimer);
+    state.snapshot = null; state.filters = {}; state.page = 1;
+    syncFilterForm();
+    $("#review-dialog").close(); $("#download-menu").open = false;
+    $("#loading").hidden = true; $("#content").hidden = true;
+    $("#main").removeAttribute("aria-busy");
+    $("#error").textContent = error.message; $("#error").hidden = false;
+  }
+}
 $("#filters").addEventListener("submit", event => {
   event.preventDefault();
-  const next = Object.fromEntries(new FormData(event.currentTarget));
-  if (next.date_from && next.date_to && next.date_from > next.date_to) { toast("시작일은 종료일보다 늦을 수 없습니다."); return; }
-  state.filters = next; state.page = 1; load();
+  try { applyQuery(formFilters(Object.fromEntries(new FormData(event.currentTarget)))); }
+  catch (error) { toast(error.message); }
 });
-$("#filters").addEventListener("reset", () => { state.filters = {}; state.page = 1; load(); });
-$("#refresh").addEventListener("click", load);
+$("#filters").addEventListener("reset", event => { event.preventDefault(); applyQuery({}); });
+$("#refresh").addEventListener("click", restoreLocation);
 $("#retry-chart").addEventListener("click", () => { if (state.snapshot) renderChart(state.snapshot); });
-$("#previous-page").addEventListener("click", () => { if (state.page > 1) { state.page--; load(); } });
-$("#next-page").addEventListener("click", () => { if (state.snapshot && state.page < state.snapshot.page.total_pages) { state.page++; load(); } });
+$("#previous-page").addEventListener("click", () => { if (state.snapshot && state.page > 1) applyQuery(state.filters, state.page - 1); });
+$("#next-page").addEventListener("click", () => { if (state.snapshot && state.page < state.snapshot.page.total_pages) applyQuery(state.filters, state.page + 1); });
 $("#close-dialog").addEventListener("click", () => $("#review-dialog").close());
 document.addEventListener("click", event => {
   const button = event.target.closest("[data-review]");
@@ -309,4 +343,8 @@ document.querySelectorAll("[data-report]").forEach(button => button.addEventList
   } catch (error) { toast(error.message || "리포트를 다운로드하지 못했습니다."); }
 }));
 window.addEventListener("hashchange", updateNavigation);
-updateNavigation(); load();
+window.addEventListener("popstate", () => {
+  if (state.search !== location.search) restoreLocation();
+  else updateNavigation();
+});
+restoreLocation();
