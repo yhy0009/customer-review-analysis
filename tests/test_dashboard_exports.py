@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from scripts.serve_dashboard import seed_demo
 from src.dashboard_server import create_server
+from src.errors import OutputError
 from src.models import DuplicatePolicy, RawReview, ReviewFilter
 from src.sqlite_repository import SQLiteReviewRepository
 from src.web_dashboard import DashboardData
@@ -122,3 +123,27 @@ class DashboardExportTests(unittest.TestCase):
         self.data.ttl = -1
         self.assertEqual(self.get(path)[0], 410)
         self.assertEqual(self.get('/api/export/unknown/csv')[0], 410)
+
+    def test_failed_export_cleans_partial_files_and_can_retry_same_snapshot(self):
+        snapshot = self.data.create_snapshot(ReviewFilter()).response
+        path = snapshot['export']['urls']['csv']
+        output_paths = []
+
+        def fail_after_write(reviews, output_path, **kwargs):
+            output_paths.append(output_path)
+            output_path.write_text('partial data', encoding='utf-8')
+            raise OutputError(f'private output path: {output_path}')
+
+        before = hashlib.sha256(self.database.read_bytes()).hexdigest()
+        with patch('src.exporter.FileReviewExporter.export_reviews', side_effect=fail_after_write):
+            code, headers, content = self.get(path)
+        self.assertEqual(code, 503)
+        self.assertNotIn('Content-Disposition', headers)
+        self.assertNotIn(b'private output path', content)
+        self.assertEqual(len(output_paths), 1)
+        self.assertNotIn(str(output_paths[0]).encode(), content)
+        self.assertFalse(output_paths[0].parent.exists())
+        code, _, content = self.get(path)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(list(csv.DictReader(io.StringIO(content.decode('utf-8-sig'))))), 18)
+        self.assertEqual(hashlib.sha256(self.database.read_bytes()).hexdigest(), before)

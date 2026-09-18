@@ -247,6 +247,7 @@ python scripts/serve_dashboard.py --database data/app_database.db
 
 브라우저에서 `http://127.0.0.1:8765`에 접속합니다. Node 설치나 프론트엔드 빌드 없이
 제품·기간·감정·별점 필터, 통계, 리뷰 상세, 원문 근거 탐색, TXT/MD 리포트 다운로드를 제공합니다.
+리뷰 탐색에서는 현재 조건 전체 리뷰를 CSV·JSONL로 다운로드할 수 있습니다(최대 2,000건).
 조회 조건과 페이지를 URL로 유지해 새로고침·뒤로가기 후에도 복원합니다.
 `sayknow`의 Python 차트 생성기를 `highslow1536`의 JS 화면에서 표시합니다.
 AI 인사이트는 별도로 준비한 파일을 연결하며 페이지 조회로 AI를 호출하지 않습니다.
