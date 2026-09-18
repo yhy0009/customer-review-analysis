@@ -97,6 +97,10 @@ python scripts/serve_dashboard.py --database data/app_database.db \
   일시적 API 오류 재시도 정책은 유지한다.
 - 화면에서 실패 상태를 확인한 뒤 **다시 생성**할 수 있다. 생성 중 필터 이동이나 페이지
   새로고침에도 작업은 계속되고, 해당 조건으로 돌아오면 상태를 다시 조회한다.
+- 실패 안내는 AI 이용 한도·요청 제한·연결 실패·설정 오류·결과 검증·파일 저장 실패를
+  구분한다. 설정·저장 폴더·대상 범위 확인이 필요하면 **확인 후 다시 생성**으로 표시한다.
+  버튼을 다시 누르면 새 AI 호출로 사용량이 발생할 수 있다. 설정을 바꾼 경우 서버를
+  재시작해야 하며, 새로고침만으로 작업을 자동 재시도하지 않는다.
 - 클릭 전에 원문이 바뀌면 새로고침을 요구한다. 생성 도중 바뀌면 결과는 저장하되 다음
   조회에서 `stale`로 제외하므로 변경된 DB에 이전 결과가 섞이지 않는다.
 - 생성 완료 후 새 조회 결과로 통계·인사이트·리포트·원문 상세를 함께 갱신한다. 이전
@@ -109,7 +113,14 @@ python scripts/serve_dashboard.py --database data/app_database.db \
 | 경로 | 계약 |
 |---|---|
 | `POST /api/insight-jobs` | JSON `{snapshot_id}`. 진행 중이면 202, 캐시 재사용이면 200 |
-| `GET /api/insight-jobs/{id}` | `id`, `status`(running/succeeded/failed), `review_count`, `error`, `reused` |
+| `GET /api/insight-jobs/{id}` | `id`, `status`(running/succeeded/failed), `review_count`, `error`, `reused`, `error_code`, `retry_action` |
+
+실패 작업의 `error`는 서버가 만든 안내문이며 예외 원문은 전달하지 않는다. 선택 필드
+`error_code`는 허용된 AI 오류 코드 또는 `GENERATION_CONFIG`, `INSIGHT_STORAGE`,
+`INSIGHT_VALIDATION`, `GENERATION_FAILED`다. `retry_action`은 `retry`, `check_settings`,
+`check_storage`, `change_scope` 중 하나다. 진행 중·성공·캐시 재사용은 두 필드 모두 null이다.
+동일한 필드를 snapshot의 `generation.job`에도 포함한다. HTTP 상태, 공급자 예외 문자열,
+리뷰·프롬프트·응답 원문, 키·서버 주소·저장 경로는 진단 필드에 포함하지 않는다.
 
 POST는 정확히 일치하는 로컬 Origin/Host, `Content-Type: application/json`,
 snapshot 응답의 `generation.token`을 `X-Dashboard-Token` 헤더로 요구한다. 본문은 최대
