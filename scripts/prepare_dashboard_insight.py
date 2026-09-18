@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import load_config, load_env_file, resolve_project_path
 from src.errors import AppError
+from src.insight_provenance import generation_profile
 from src.models import AnalysisOptions
 from src.sqlite_repository import SQLiteReviewRepository
 from src.web_dashboard import encode, filters_from_dict, make_insight_artifact, select_analyzed
@@ -35,10 +36,11 @@ def main():
             with repository.read_snapshot():
                 details = select_analyzed(repository, filters, args.limit)
         load_env_file()
-        from src.insight_extractor import AIInsightExtractor
+        from src.insight_extractor import AIInsightExtractor, PROMPT_VERSION
         options = AnalysisOptions(**load_config("config/config.json")["ai"])
         insight = AIInsightExtractor(options).extract_insights(details, filters)
-        artifact = make_insight_artifact(details, insight, args.limit)
+        artifact = make_insight_artifact(details, insight, args.limit,
+                                         profile=generation_profile(options, PROMPT_VERSION))
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("xb") as target:
             target.write(encode(artifact))

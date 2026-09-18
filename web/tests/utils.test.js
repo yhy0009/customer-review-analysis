@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {queryString, scopeText, percent, dateTime, insightStates, generationView} from "../utils.js";
+import {queryString, scopeText, percent, dateTime, insightStates, generationView, provenanceText} from "../utils.js";
 
 test("query serialization keeps product text literal and drops unknown fields", () => {
   const query = new URLSearchParams(queryString({product_name: "이어폰 & sentiment=negative <script>", secret: "hidden"}, 2));
@@ -19,9 +19,17 @@ test("zero values and missing dates are explicit", () => {
   assert.equal(dateTime("invalid"), "시각 정보 없음");
 });
 test("missing, stale and different-scope insights have distinct guidance", () => {
-  assert.equal(Object.keys(insightStates).length, 4);
+  assert.equal(Object.keys(insightStates).length, 5);
   assert.notDeepEqual(insightStates.missing, insightStates.stale);
   assert.match(insightStates.scope_mismatch[1], /현재 필터/);
+});
+test("generation provenance distinguishes requested models and unknown legacy results", () => {
+  assert.match(provenanceText(null), /정보가 없는 이전 결과/);
+  const profile = {model: "routed-model", provider: "openai-compatible", prompt_version: "v5", reasoning_effort: "minimal"};
+  assert.match(provenanceText(profile), /요청 모델 routed-model/);
+  assert.match(provenanceText(profile), /프롬프트 v5/);
+  assert.match(provenanceText(profile), /추론 minimal/);
+  assert.equal(generationView({enabled: true, review_count: 4, limit: 50}, "config_mismatch").disabled, false);
 });
 test("generation requires explicit action and does not offer duplicate calls", () => {
   const data = {enabled: true, review_count: 6, limit: 50};

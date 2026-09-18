@@ -27,7 +27,7 @@ python scripts/serve_dashboard.py --database data/app_database.db
 ```
 
 실제 모드는 기존 표준 스키마 DB를 읽기 전용으로 연다. 상대 경로는 저장소 루트 기준이다.
-DB를 지정하지 않으면 `data/app_database.db`를 사용하며 서버는 `.env`나 config를 읽지 않는다.
+DB를 지정하지 않으면 `data/app_database.db`를 사용한다. 조회 전용 실행은 `.env`나 config를 읽지 않는다.
 파일이 없거나 구형 스키마면 시작에 실패한다. 빈 DB 생성·자동 마이그레이션은 하지 않는다.
 인사이트 파일 없이도 통계·차트·리뷰·통계 리포트는 이용할 수 있다.
 
@@ -61,6 +61,7 @@ python scripts/serve_dashboard.py --database data/app_database.db \
 | `scope_mismatch` | 화면 필터와 인사이트 생성 필터가 다름 |
 | `stale` | 원문·분석·선택 대상 변경 또는 인용 검증 실패 |
 | `invalid` | 조건별 캐시 파일이 손상되었거나 저장 조건이 다름. 다시 생성 가능 |
+| `config_mismatch` | 원문은 일치하지만 현재 AI 생성 설정과 다르거나 과거 파일에 생성 정보가 없음 |
 
 `available`만 화면과 다운로드 리포트에 포함한다. 통계는 필터 전체 대상, 인사이트는
 선택 한도 이내 분석 완료 리뷰 대상이며 화면에 두 수치를 구분한다. 한도 밖 데이터가
@@ -78,7 +79,8 @@ python scripts/serve_dashboard.py --database data/app_database.db \
 ```
 
 `--enable-insights`로 시작하면 현재 조건의 대상 건수와 **인사이트 생성** 버튼을 표시한다.
-클릭할 때만 기존 `.env`/config의 AI 설정을 로드해 분석 완료 리뷰를 전송한다. 필터 변경,
+이 모드에서는 시작 시 `.env`/config의 AI 설정과 프롬프트 버전을 함께 고정하고, 버튼을
+클릭할 때만 분석 완료 리뷰를 전송한다. 설정 변경 후에는 서버를 다시 시작한다. 필터 변경,
 새로고침, 작업 상태 조회, 리포트 다운로드에는 AI 호출이 없다. 데모 모드는 생성 활성화와
 함께 사용할 수 없다. 브라우저로 API 키나 공급자의 상세 오류를 보내지 않는다.
 
@@ -87,8 +89,9 @@ python scripts/serve_dashboard.py --database data/app_database.db \
   Git에서 제외한다. 사용자 지정 폴더에는 원문 인용이 포함될 수 있으므로 별도로 관리한다.
 - DB 절대 경로·필터·선택 한도별 최신 성공 결과를 파일 하나로 저장한다. 임시 파일을 검증한
   뒤 원자적으로 교체한다. 서버를 다시 실행해도 원문·분석이 일치하면 재사용한다.
-- 필터 문자열이 다르면 별도 조건으로 취급한다. 모델·프롬프트 변경은 자동 재생성 사유가
-  아니다. 그 경우 새 캐시 폴더를 지정해 결과를 구분한다.
+- 필터 문자열이 다르면 별도 조건으로 취급한다. 모델·공급자·프롬프트·추론 설정·서버 주소가
+  달라지면 이전 결과를 `config_mismatch`로 제외한다. 새 폴더 없이 같은 조건으로 다시 생성할
+  수 있다. API 키 교체, 타임아웃·재시도 횟수 변경은 캐시를 무효화하지 않는다.
 - 한 서버에서 동시에 한 작업만 실행한다. 같은 조건·원문의 중복 클릭은 같은 작업을 반환하고,
   다른 조건의 생성은 409로 거절한다. 대기열이나 자동 재시도는 없다. 추출기 내부의 기존
   일시적 API 오류 재시도 정책은 유지한다.
@@ -117,7 +120,31 @@ snapshot 응답의 `generation.token`을 `X-Dashboard-Token` 헤더로 요구한
 
 snapshot v1에 하위 호환 필드 `generation`을 추가한다. `enabled`, `limit`, `review_count`,
 `token`(비활성이면 null), 현재 조건의 최신 `job`(없으면 null)을 포함한다. 기존 조회 전용
-명령과 `--insight-file` 파일 포맷은 유지하고, 리뷰 DB에는 쓰지 않는다.
+명령과 `--insight-file`의 v1 읽기 호환성은 유지하고, 리뷰 DB에는 쓰지 않는다.
+
+### 생성 정보와 파일 버전
+
+새로 생성하는 파일은 envelope v2이며 `generation_profile`을 함께 저장한다.
+`provider`, `model`(요청한 모델), `prompt_version`(추출기의 실제 내장 버전),
+`reasoning_effort`, `endpoint_sha256`(서버 주소 지문)만 허용한다. 자격 증명과 서버 URL
+원문은 저장하지 않는다. API 요청 모델과 라우팅 서버의 실제 응답 모델은 다를 수 있으므로
+화면에도 **요청 모델**로 표시한다. 추론 설정 역시 요청 설정이며 호환 서버의 적용을 보증하지 않는다.
+
+생성 서버의 설정과 파일에 기록된 설정을 비교한다. 선택 조건별 최신 성공 결과 하나를
+유지하므로 다른 설정으로 재생성하면 같은 조건의 이전 파일을 교체한다. 시작 후 설정 파일을
+수정해도 진행 중 작업의 설정·생성 정보는 바뀌지 않는다. 재시작한 서버의 새 설정과 기존
+캐시가 다르면 사용자의 재생성 버튼 클릭을 기다리며 자동으로 AI를 호출하지 않는다.
+
+v1 파일도 계속 읽을 수 있다. 조회 전용 모드에서는 원문 검증 후 표시하되 생성 정보가
+없는 이전 결과라고 안내한다. 생성 활성 모드에서는 현재 설정과 같음을 확인할 수 없어
+재생성을 요구한다. `--insight-file`로 명시한 파일에도 같은 규칙을 적용한다.
+`prepare_dashboard_insight.py`도 v2를 기록한다. v2 파일을 읽으려면 이 변경 이후의 코드가 필요하다.
+
+HTTP snapshot의 버전은 1을 유지한다. 선택 필드 `insight_provenance`는 현재 표시하는 결과의
+생성 정보이며, `generation.profile`은 서버에 고정된 생성 설정이다. 둘 다 서버 주소 지문을
+제외한 네 필드만 전달한다. 결과가 제외됐거나 v1 파일이면 `insight_provenance`는 null이다.
+조회 전용 모드는 현재 AI 설정을 비교하지 않고 파일에 기록된 생성 정보를 표시한다.
+기존 TXT/MD 리포트 본문 형식은 유지하며 생성 정보 표시는 웹 화면에서 제공한다.
 
 ## HTTP 계약 v1
 
@@ -156,7 +183,7 @@ analysis는 null 또는 `sentiment`, `confidence`, `summary`, `keywords`, `model
 자료·의존성 오류는 503이다. 상세 경로나 예외 본문은 HTTP 응답에 노출하지 않는다.
 
 인사이트 파일 v1은 `schema_version`, `source_sha256`, `selection_limit`, `review_ids`,
-`insight` 필드를 갖는다. 해시는 ID 오름차순 `ReviewDetail` 목록의 날짜 ISO 변환 후
+`insight` 필드를 가지며 v2는 `generation_profile`을 추가한다. 해시는 ID 오름차순 `ReviewDetail` 목록의 날짜 ISO 변환 후
 JSON UTF-8 직렬화 결과를 대상으로 한다. `make_insight_artifact()`를 사용해 생성한다.
 기존 DTO의 추가 필드나 직렬화 계약이 바뀌면 파일을 다시 준비해야 한다.
 

@@ -908,3 +908,16 @@ AI·리포트 확장으로 기존 `InsightResult` 생성자의 필수 인자는 
   생성 완료 전후의 화면·리포트는 각 snapshot의 데이터를 사용한다.
 - 조회 요청에서는 AI 설정이나 자격 증명을 로드하지 않는다. 생성 요청만 기존
   `AIInsightExtractor`를 사용하며 CLI 명령과 Python 차트 생성기 계약을 바꾸지 않는다.
+
+### 25.2 인사이트 생성 정보와 캐시 호환성
+
+- 생성 활성 서버는 시작 시 옵션과 내장 프롬프트 버전을 함께 고정한다. 설정 변경은
+  재시작 이후 적용하며 실제 AI 호출은 생성 버튼 요청에서만 수행한다.
+- 파일 envelope v2에 `generation_profile`을 추가한다. 공급자·요청 모델·내장 프롬프트 버전·
+  추론 설정·서버 주소 지문을 비교해 다르면 `config_mismatch`로 제외한다. API 키는 저장·비교하지 않는다.
+- v1 파일은 조회 전용으로 계속 표시할 수 있다. 생성 활성 모드에서는 출처 설정이 없는
+  결과의 재사용을 막고 명시적인 재생성을 요구한다. 새 파일은 검증 후 같은 조건의 파일을 교체한다.
+- HTTP snapshot v1에 `insight_provenance`, `generation.profile`을 선택적으로 추가한다.
+  공개 정보는 provider/model/prompt_version/reasoning_effort이며 서버 지문·URL·키는 보내지 않는다.
+- 모델 정보는 요청 설정이며 실제 응답 모델을 의미하지 않는다. 공통 `InsightResult` DTO,
+  Repository, 기존 리포트 형식은 변경하지 않는다.

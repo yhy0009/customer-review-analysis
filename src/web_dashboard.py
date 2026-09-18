@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from src.errors import ValidationError
+from src.insight_provenance import public_profile, validate_profile
 from src.models import (
     InsightCitation, InsightEvidenceGroup, InsightResult, KeywordCount, ReviewFilter,
     ReviewQuery, Sentiment, SortField, SortOrder,
@@ -74,12 +75,15 @@ def source_hash(details):
     return hashlib.sha256(encode([asdict(d) for d in details])).hexdigest()
 
 
-def make_insight_artifact(details, insight, limit):
+def make_insight_artifact(details, insight, limit, *, profile=None):
     if type(limit) is not int or not 1 <= limit <= 2000 or len(details) != insight.review_count:
         raise ValidationError("인사이트 선택 범위가 올바르지 않습니다.")
-    return {"schema_version": 1, "source_sha256": source_hash(details),
+    artifact = {"schema_version": 1, "source_sha256": source_hash(details),
             "selection_limit": limit, "review_ids": [d.review.id for d in details],
             "insight": json_value(asdict(insight))}
+    if profile is not None:
+        artifact.update(schema_version=2, generation_profile=validate_profile(profile))
+    return artifact
 
 
 def load_insight_artifact(path):
@@ -94,10 +98,16 @@ def load_insight_artifact(path):
         if path.stat().st_size > 10_000_000:
             raise ValueError
         artifact = json.loads(path.read_bytes(), object_pairs_hook=unique)
-        if set(artifact) != {"schema_version", "source_sha256", "selection_limit", "review_ids", "insight"}:
+        if not isinstance(artifact, dict):
             raise ValueError
-        if type(artifact["schema_version"]) is not int or artifact["schema_version"] != 1:
+        version = artifact.get("schema_version")
+        if type(version) is not int or version not in (1, 2):
             raise ValueError
+        fields = {"schema_version", "source_sha256", "selection_limit", "review_ids", "insight"}
+        if set(artifact) != (fields | {"generation_profile"} if version == 2 else fields):
+            raise ValueError
+        if version == 2:
+            artifact["generation_profile"] = validate_profile(artifact["generation_profile"])
         if type(artifact["selection_limit"]) is not int or not 1 <= artifact["selection_limit"] <= 2000:
             raise ValueError
         ids = artifact["review_ids"]
@@ -151,7 +161,7 @@ class Snapshot:
 
 class DashboardData:
     def __init__(self, database, *, insight_path=None, demo=False, ttl=900, capacity=16,
-                 cache_dir=None, extractor_factory=None, insight_limit=50):
+                 cache_dir=None, extractor_factory=None, insight_limit=50, generation_profile=None):
         self.database = Path(database)
         self.insight_path = Path(insight_path) if insight_path else None
         self.demo, self.ttl, self.capacity = demo, ttl, capacity
@@ -162,7 +172,7 @@ class DashboardData:
         self.generation_token = secrets.token_urlsafe(32)
         if cache_dir is not None:
             from src.dashboard_insights import InsightJobs
-            self.jobs = InsightJobs(database, cache_dir, extractor_factory, insight_limit)
+            self.jobs = InsightJobs(database, cache_dir, extractor_factory, insight_limit, profile=generation_profile)
         elif extractor_factory is not None:
             raise ValidationError("인사이트 저장 경로가 필요합니다.")
         # Fail early without creating or migrating a DB.
@@ -202,7 +212,10 @@ class DashboardData:
                         status = "stale"
                         from src.dashboard_insights import matches
                         if matches(artifact, source, filters):
-                            insight, status = candidate, "available"
+                            if self.jobs and not self.jobs.compatible(artifact):
+                                status = "config_mismatch"
+                            else:
+                                insight, status = candidate, "available"
         by_id = {d.review.id: public_review(d) for d in [*source, *rows.items]}
         token = uuid.uuid4().hex
         response = {"schema_version": 1, "snapshot_id": token,
@@ -211,9 +224,11 @@ class DashboardData:
                     "page": {"number": rows.page, "size": rows.size, "total_items": rows.total_items,
                              "total_pages": rows.total_pages, "items": [public_review(d) for d in rows.items]},
                     "insight_status": status, "insight": json_value(asdict(insight)) if insight else None,
+                    "insight_provenance": public_profile(artifact.get("generation_profile")) if insight else None,
                     "chart_url": f"/api/chart/{token}",
                     "report_urls": {fmt: f"/api/report/{token}/{fmt}" for fmt in ("md", "txt")}}
         response["generation"] = {"enabled": bool(self.jobs and self.jobs.factory),
+                                  "profile": public_profile(self.jobs.profile) if self.jobs else None,
                                   "limit": self.jobs.limit if self.jobs else None,
                                   "review_count": len(generation_source or []),
                                   "token": self.generation_token if self.jobs and self.jobs.factory else None,

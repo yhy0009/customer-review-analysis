@@ -21,11 +21,18 @@ export function scopeText(filters) {
   return parts.join(" · ");
 }
 export const insightStates = {
+  config_mismatch: ["현재 AI 설정으로 다시 생성해 주세요", "저장된 결과의 모델·프롬프트·서버 설정이 현재 설정과 다르거나 생성 정보가 없습니다. 위의 생성 버튼으로 다시 준비할 수 있습니다."],
   invalid: ["저장된 인사이트를 읽지 못했어요", "인사이트를 다시 생성하거나 저장 파일을 확인하세요. 통계와 리뷰는 계속 조회할 수 있습니다."],
   missing: ["아직 준비된 인사이트가 없어요", "저장된 분석으로 인사이트 파일을 준비하면 이곳에서 요약과 원문 근거를 확인할 수 있습니다."],
   scope_mismatch: ["다른 조회 조건의 인사이트가 있어요", "현재 필터와 인사이트의 조건이 달라 표시하지 않습니다. 조건을 초기화하거나 현재 범위의 인사이트를 준비하세요."],
   stale: ["인사이트를 다시 준비해 주세요", "리뷰나 분석 결과가 생성 당시와 달라졌습니다. 현재 데이터와 일치하는 인사이트가 필요합니다."],
 };
+
+export function provenanceText(profile) {
+  if (!profile) return "생성 정보가 없는 이전 결과입니다.";
+  const reasoning = profile.reasoning_effort ? ` · 추론 ${profile.reasoning_effort}` : "";
+  return `요청 모델 ${profile.model} · ${profile.provider} · 프롬프트 ${profile.prompt_version}${reasoning}`;
+}
 
 export function generationView(generation, insightStatus) {
   if (!generation?.enabled) return {disabled: true, label: "생성 비활성", message: "현재는 저장된 인사이트를 조회합니다."};
