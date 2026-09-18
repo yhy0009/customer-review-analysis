@@ -268,7 +268,8 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 `QueryService`는 목록·상세·통계를 구현한다. 기본 조회 핸들러는 인자 검증 후 설정에서
 SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 기본 `export` 명령에 연결됐다.
 기존 `AnalysisService`·`InsightService`도 기본 `analyze`·`extract`에 연결됐다.
-`import`, `clean`, `dashboard`는 미연결 오류를 유지한다.
+`ImportService`는 수집기와 원본 저장소를 연결하며 기본 `import` 명령에 등록됐다.
+`clean`, `dashboard`는 미연결 오류를 유지한다.
 전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
 
 ### 5.3 CLI 명령 인자
@@ -300,14 +301,15 @@ def load_reviews(
     ...
 ```
 
-수집기 기능 브랜치의 현재 DataFrame 반환값은 통합 전에 `list[RawReview]`로 변환한다.
+수집기는 DataFrame을 내부에서 `list[RawReview]`로 변환해 반환한다.
 
 - DataFrame은 수집기 내부 구현에만 사용한다.
 - 추가 원본 컬럼은 `RawReview.raw_payload: dict[str, object]`에 보존한다.
 - 외부 컬럼 `review_id`는 `source_review_id`로 매핑한다. 값이 없으면 `None`으로
   반환하고 저장소가 내부 ID를 생성한다. 값 정규화와 중복 키 생성은 저장소가 담당한다.
 - 빈 파일·미지원 확장자·컬럼 추론 실패는 `InputFileError`를 발생시킨다.
-- `load_reviews`는 읽기와 표준화만 담당하고, 저장은 `import` 핸들러가 수행한다.
+- `load_reviews`는 읽기와 표준화만 담당하고, `ImportService`가 원본 저장을 요청한다.
+  핸들러는 요청 변환·결과 출력·종료 코드 처리를 담당한다.
 
 저장은 다음 경계를 사용한다.
 
@@ -835,7 +837,7 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 ## 24. 수집·정제·대시보드 공통 CLI 연결 경계
 
-세 명령의 구체 서비스 구현에 앞서 공통 결과 출력과 선택적 등록 경계를 제공한다.
+세 명령에 공통 결과 출력과 선택적 등록 경계를 제공한다. import는 구체 서비스까지 연결됐다.
 기존 Request·Result·ApplicationServices·Repository Protocol과 명령별 소유권은 유지한다.
 
 - `build_import_handler`, `build_clean_handler`, `build_dashboard_handler`는 요청 생성·
@@ -844,16 +846,19 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   표시한다. failed 또는 rejected가 있으면 기존 배치 계약에 따라 종료 코드 1이다.
 - `format_dashboard_result()`는 반환된 산출물의 종류·포맷·경로를 표시한다.
   빈 목록은 파일이 생성되지 않았음을 표시하며 정상 반환(0)으로 처리한다.
-- `build_default_handlers(import_factory=None, clean_factory=None, dashboard_factory=None)`는
-  제공된 생성 함수에 해당하는 명령만 기존 기본 매핑에 추가한다. 생성 함수는
+- `build_default_handlers()`는 기본 import 생성 함수를 사용한다. `import_factory`를 전달하면
+  교체하고, `clean_factory`·`dashboard_factory`를 전달하면 해당 명령을 추가한다.
+  명시적인 `None`은 해당 파이프라인 명령을 등록하지 않는다. 생성 함수는
   `(repository, config)`를 받아 기존 요청을 소비하는 서비스 메서드를 반환한다.
 - 요청 검증 후 명령별 SQLite 연결을 열고 생성 함수를 호출한다. 서비스는 연결을 빌려 쓰며
   런타임이 성공·오류·사용자 중단 모두 연결을 닫는다. 전체 명령의 트랜잭션을 추가하지 않는다.
 - 생성 함수와 서비스를 실행할 때 발생한 ImportError는 의존성 안내와 코드 2로 처리한다.
   기본 매핑 생성만으로 구체 기능 모듈이나 선택적 SDK를 import하지 않는다.
 
-인자 없는 기본 실행은 여전히 기존 6개 명령을 등록한다. 세 명령의 구체 서비스 생성 함수를
-시작 코드에서 공급하는 작업은 후속 통합 단계다. 자세한 연결 규약과 검증 방법은
+인자 없는 기본 실행은 import를 포함한 7개 명령을 등록한다. `ImportService`는 수집기의
+원본 목록과 요청의 중복 정책을 `save_raw_reviews()`에 전달하고 배치 결과를 그대로 반환한다.
+날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다. clean·dashboard의 기본 연결은 후속 단계다.
+자세한 연결 규약과 검증 방법은
 [수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.
 
 
