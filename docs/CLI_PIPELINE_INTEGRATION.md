@@ -3,12 +3,14 @@
 ## 현재 제공하는 범위
 
 `import`, `clean`, `dashboard`에 공통 결과 출력 어댑터와 서비스 주입 방식의
-CLI 등록 경계를 제공한다. 수집·정제·차트·리포트 생성 모듈을 조율하는 서비스는
-기능 담당자가 구현한다. 기존 `ApplicationServices`, Request, Result 계약은 유지한다.
+CLI 등록 경계를 제공한다. `ImportService`는 수집기와 원본 저장소를 연결한다.
+정제·차트·리포트 생성 모듈을 조율하는 서비스는 후속 작업이다.
+기존 `ApplicationServices`, Request, Result 계약은 유지한다.
 
-**인자 없이 구성한 기본 CLI는 여전히 analyze/extract/list/show/stats/export 6개만 실행한다.**
-`python main.py import ...`, `clean`, `dashboard`는 실제 서비스 생성 함수를
-애플리케이션 시작 코드에서 등록하기 전까지 미연결 오류(종료 코드 2)를 반환한다.
+**기본 CLI는 import/analyze/extract/list/show/stats/export 7개를 실행한다.**
+`import`는 기본 생성 함수로 `collector.load_reviews`와 `ImportService`를 구성한다.
+사용법과 중복 정책은 [원본 리뷰 적재 안내](IMPORT.md)를 따른다.
+`clean`, `dashboard`는 실제 서비스 생성 함수를 등록하기 전까지 미연결 오류(종료 코드 2)를 반환한다.
 서비스 준비가 끝난 명령부터 개별 등록할 수 있다.
 
 ## 서비스 등록
@@ -26,7 +28,7 @@ CLI 등록 경계를 제공한다. 수집·정제·차트·리포트 생성 모�
 설정 파일 우선순위가 적용된 전체 설정이다. 반환값은 요청 객체 하나를 받는 함수 또는
 서비스의 바인딩된 메서드다. 전체 `ApplicationServices` 객체를 만들 필요는 없다.
 
-아래 함수는 호출자가 제공하는 `make_service(repository, config)`로 import 서비스를
+아래 함수는 기본 import 서비스를 교체하고 싶을 때 호출자가 제공하는 `make_service(repository, config)`로 서비스를
 구성한다. `make_service`는 실제 `import_reviews()` 메서드를 가진 객체를 반환해야 한다.
 이 예시 자체는 수집·저장 로직을 구현하지 않는다.
 
@@ -45,7 +47,10 @@ def run_import_cli(argv, make_service):
 ```
 
 동일한 방식으로 `clean_factory`, `dashboard_factory`를 함께 전달할 수 있다.
-기존 6개 명령은 매핑에 유지되며 생략한 생성 함수에 해당하는 명령은 등록되지 않는다.
+`import_factory`를 생략하면 기본 import 서비스가 등록되고, 전달하면 해당 생성 함수로 교체된다.
+`clean_factory`와 `dashboard_factory`는 생략하면 등록되지 않는다.
+어느 생성 함수든 명시적으로 `None`을 전달하면 해당 파이프라인 명령을 등록하지 않는다.
+기존 analyze/extract/list/show/stats/export 6개 명령은 매핑에 유지된다.
 구체 서비스와 선택적 패키지의 import는 생성 함수 내부에서 수행해, 도움말이나 다른
 명령을 구성하는 것만으로 pandas·matplotlib·AI SDK가 필요해지지 않도록 한다.
 
@@ -103,10 +108,12 @@ API 키나 원문 전체를 넣지 않아야 한다. 터미널 제어 문자는 
 
 ```bash
 python -m unittest tests.test_pipeline_handlers tests.test_pipeline_runtime -v
+python -m unittest tests.test_import_service tests.test_import_cli -v
 python -m unittest discover -s tests -q
 ```
 
 테스트는 결과 출력, 필터·옵션 전달, 명령별 선택 등록, DB 생성 전 검증, 실제 SQLite 저장,
 성공·실패·중단 시 연결 종료와 다른 작업 디렉터리에서의 경로 해석을 확인한다.
 `python -S` 프로세스에서도 서비스 대역을 주입해 선택적 패키지 없이 연결 경계가 동작하는지
-검증한다. API를 호출하지 않으며, 구체 수집·정제·대시보드 서비스의 완료 검증과는 별개다.
+검증한다. import 테스트는 실제 CSV/Excel과 SQLite를 사용해 기본 연결·중복 정책·오류를 확인한다.
+API를 호출하지 않으며, 정제·대시보드 서비스의 완료 검증은 후속 작업이다.
