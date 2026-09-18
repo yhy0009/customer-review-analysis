@@ -158,6 +158,7 @@ Host/Origin을 로컬 주소로 제한하고 정적 파일 5개만 제공한다.
 | `/api/chart/{snapshot_id}` | 같은 통계로 생성한 PNG |
 | `/api/report/{snapshot_id}/md` 또는 `/txt` | 같은 통계·인사이트의 리포트 첨부 파일 |
 | `/api/review/{snapshot_id}/{id}` | 해당 페이지 또는 인사이트에 포함된 리뷰 상세 |
+| `/api/export/{snapshot_id}/csv` 또는 `/jsonl` | 같은 조회 시점·필터의 전체 정제 리뷰와 저장된 분석 결과 |
 
 snapshot 쿼리는 `product_name`(부분 일치), `date_from`, `date_to`(YYYY-MM-DD),
 `sentiment`(positive/neutral/negative), `rating`, `rating_min`, `page`를 지원한다.
@@ -186,6 +187,19 @@ snapshot JSON의 최상위 필드는 다음과 같다.
 - `page`: `number`, `size`, `total_items`, `total_pages`, `items`
 - `insight_status`, `insight`: 사용 가능한 경우 공통 `InsightResult`, 그 외 null
 - `chart_url`, `report_urls: {md, txt}`: 동일 원점의 상대 경로
+- `export`: 선택 필드. `status`(`available`/`too_large`), `row_count`, `limit`(2000),
+  `urls: {csv, jsonl}`. 한도 초과 시 urls는 빈 객체다.
+
+리뷰 내보내기는 화면의 10건이 아닌 현재 조건 전체를 ID 오름차순으로 제공한다. 최대
+2000건의 대상을 통계·페이지와 같은 읽기 트랜잭션에서 보관하며 다운로드 시 DB를 다시
+읽지 않는다. 한도를 초과하면 데이터를 잘라 내보내지 않고 413을 반환한다. 기존 조회와
+리포트는 계속 사용할 수 있다. 빈 결과는 CSV 헤더 또는 빈 JSONL 파일이다.
+
+공통 `FileReviewExporter` 형식을 재사용한다. 외부 식별자인 `source_review_id`는
+빈 값으로 제거하며 원본 파일 경로·Raw payload를 포함하지 않는다. CSV는 UTF-8 BOM과
+수식으로 해석될 수 있는 문자열의 작은따옴표 접두어를 유지하고, JSONL은 원문을 보존한다.
+응답은 첨부 파일이며 임시 파일은 요청 종료 시 정리한다. 필터 추가는 400, 만료는 410,
+미지원 형식은 404다. 다운로드는 DB 쓰기나 AI 호출을 발생시키지 않는다.
 
 리뷰 JSON은 `id`, `product_name`, `review_date`, `rating`, `review_text`, `analysis`다.
 analysis는 null 또는 `sentiment`, `confidence`, `summary`, `keywords`, `model`,

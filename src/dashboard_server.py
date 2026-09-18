@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from src.errors import AppError, ValidationError
-from src.models import ReportFormat
+from src.models import ExportFormat, ReportFormat
 from src.web_dashboard import encode, filters_from_dict
 
 
@@ -71,10 +71,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             pieces = path.strip("/").split("/")
             if len(pieces) == 3 and pieces[:2] == ["api", "insight-jobs"] and self.server.data.jobs:
                 return self.send_bytes(200, encode(self.server.data.jobs.get(pieces[2])))
-            if len(pieces) >= 3 and pieces[:2] in (["api", "chart"], ["api", "report"], ["api", "review"]):
+            if len(pieces) >= 3 and pieces[:2] in (["api", "chart"], ["api", "report"], ["api", "review"], ["api", "export"]):
                 snapshot = self.server.data.get_snapshot(pieces[2])
                 if query:
                     raise ValidationError("이 요청에는 필터를 추가할 수 없습니다.")
+                if pieces[1] == "export" and len(pieces) == 4 and pieces[3] in ("csv", "jsonl"):
+                    if snapshot.export_reviews is None:
+                        return self.error(413, "다운로드 건수 한도를 초과했습니다. 필터로 범위를 줄여 다시 조회하세요.")
+                    from src.exporter import FileReviewExporter
+                    fmt = ExportFormat(pieces[3])
+                    with tempfile.TemporaryDirectory(prefix="cra-web-export-") as directory:
+                        result = FileReviewExporter().export_reviews(snapshot.export_reviews,
+                            Path(directory) / f"reviews.{fmt.value}", export_format=fmt)
+                        payload = result.artifact.path.read_bytes()
+                    mime = "text/csv; charset=utf-8" if fmt is ExportFormat.CSV else "application/x-ndjson; charset=utf-8"
+                    return self.send_bytes(200, payload, mime, f"reviews.{fmt.value}")
                 if pieces[1] == "review" and len(pieces) == 4:
                     review = snapshot.reviews.get(int(pieces[3]))
                     if review is None:
