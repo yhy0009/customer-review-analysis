@@ -185,18 +185,27 @@ def _default_import_factory(
     return ImportService(repository, collector).import_reviews
 
 
+def _default_clean_factory(
+    repository: ReviewRepository, config: Mapping[str, Any],
+) -> Callable[[CleanRequest], CleanBatchResult]:
+    from src import cleaner
+    from src.clean_service import CleanService
+
+    return CleanService(repository, cleaner).clean_reviews
+
+
 def build_default_handlers(
     *,
     import_factory: ServiceFactory[ImportRequest, BatchOperationResult] | None = _default_import_factory,
-    clean_factory: ServiceFactory[CleanRequest, CleanBatchResult] | None = None,
+    clean_factory: ServiceFactory[CleanRequest, CleanBatchResult] | None = _default_clean_factory,
     dashboard_factory: ServiceFactory[DashboardRequest, DashboardResult] | None = None,
 ) -> dict[str, CommandHandler]:
-    """Register default import and existing commands, plus supplied services.
+    """Register default import/clean and existing commands, plus supplied services.
 
     Factories run lazily after argument validation with a fresh repository and
     the loaded config. They return one service method, not a full application.
-    Import uses the file collector by default. Clean and dashboard still need
-    factories. Explicit None disables that pipeline command (exit code 2).
+    Import and clean use their services by default. Dashboard still needs a
+    factory. Explicit None disables that pipeline command (exit code 2).
     """
     handlers = {
         "analyze": _analyze_handler,

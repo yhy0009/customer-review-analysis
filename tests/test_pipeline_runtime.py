@@ -64,7 +64,7 @@ class PipelineRuntimeTests(unittest.TestCase):
                 repository.get_statistics()
 
     def test_registration_is_lazy_and_independent_and_keeps_existing_commands(self):
-        existing = {'import', 'analyze', 'extract', 'list', 'show', 'stats', 'export'}
+        existing = {'import', 'clean', 'analyze', 'extract', 'list', 'show', 'stats', 'export'}
         self.assertEqual(set(build_default_handlers()), existing)
         factory = Mock()
         for name in ('import', 'clean', 'dashboard'):
@@ -76,7 +76,7 @@ class PipelineRuntimeTests(unittest.TestCase):
 
     def test_explicit_none_keeps_command_unconnected_and_does_not_create_db(self):
         for argv in (['import', '--file', 'reviews.csv'], ['clean'], ['dashboard']):
-            code, out, err = self.run_cli(argv, build_default_handlers(import_factory=None))
+            code, out, err = self.run_cli(argv, build_default_handlers(import_factory=None, clean_factory=None))
             self.assertEqual(code, 2)
             self.assertFalse(out)
             self.assertIn('아직 연결되지 않았습니다', err)
