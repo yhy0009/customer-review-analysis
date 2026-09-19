@@ -46,7 +46,15 @@ class ReviewRepository(Protocol):
         self,
         reviews: Sequence[CleanReview],
         policy: DuplicatePolicy,
+        *, expected_raw: Optional[Sequence[RawReview]] = None,
     ) -> BatchOperationResult:
+        """Optionally compare originals atomically; raise RawReviewChangedError on conflict."""
+        ...
+
+    def mark_cleaning_rejected(
+        self, review_id: int, *, expected_raw: Optional[RawReview] = None,
+    ) -> None:
+        """Keep Raw, remove dependent Clean/Analysis, and set REJECTED atomically."""
         ...
 
     def fetch_clean_reviews(

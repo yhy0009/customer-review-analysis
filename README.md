@@ -183,10 +183,11 @@ cp config/config_example.json config/config.json
 
 ## 💻 8. CLI 사용법 (Usage Guide)
 
-현재 `main.py`의 기본 실행은 **`import`, `analyze`, `extract`, `list`, `show`, `stats`, `export`**를 지원합니다.
-CSV/Excel을 SQLite 원본 저장소에 적재하고, 저장된 정제 리뷰의 분석·인사이트 추출·조회·내보내기를 수행합니다.
-`clean`, `dashboard`는 아래 사용 형식을 정의한 상태이며 기본 실행 연결은 후속 작업입니다.
+현재 `main.py`의 기본 실행은 **`import`, `clean`, `analyze`, `extract`, `list`, `show`, `stats`, `export`**를 지원합니다.
+CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 분석·인사이트 추출·조회·내보내기를 수행합니다.
+`dashboard`는 아래 사용 형식을 정의한 상태이며 기본 CLI 연결은 후속 작업입니다.
 `import`의 입력 형식과 중복 정책은 [원본 리뷰 적재 안내](docs/IMPORT.md)를 참고하세요.
+`clean`의 정제 기준·재실행 정책과 제외 상태 처리는 [리뷰 정제 안내](docs/CLEAN.md)를 참고하세요.
 원본만 적재한 리뷰는 정제 전까지 조회·통계·AI 분석 대상에 포함되지 않습니다.
 세 명령의 공통 결과 출력과 서비스 주입용 등록 경계는 준비되어 있습니다.
 기능 담당자의 서비스 연결 방법은 [수집·정제·대시보드 CLI 연결 안내](docs/CLI_PIPELINE_INTEGRATION.md)를 참고하세요.
@@ -202,7 +203,7 @@ CSV/Excel을 SQLite 원본 저장소에 적재하고, 저장된 정제 리뷰의
 > 고정 합성 리뷰의 분류 지표와 서비스 전체 흐름을 검증하는 [AI 평가 도구](docs/AI_EVALUATION.md)도 제공합니다.
 > 대량 리뷰는 근거 배치와 전체 인용 목록으로 처리하며, 저장 평가의 [정책 기반 품질 판정](docs/AI_QUALITY_GATE.md)을 제공합니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
-> 아래 예시 중 `clean`, `dashboard`는 후속 연결을 위한 목표 사용법입니다.
+> 아래 예시 중 `dashboard`는 후속 연결을 위한 목표 사용법입니다.
 > `import`에는 실제 리뷰가 들어 있는 입력 파일을 준비하세요. 현재 `data/sample_reviews.csv`는 비어 있습니다.
 
 ```bash

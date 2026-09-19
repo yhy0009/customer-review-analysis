@@ -61,7 +61,7 @@ processed=2 succeeded=2 skipped=0 failed=0 rejected=0
 
 `import`는 Raw 적재까지만 수행한다. 정제 전에는 `list`, `show`, `stats`, `analyze`의
 대상에 포함되지 않으므로 새 DB에 import한 뒤 `stats`가 0건을 표시하는 것은 정상이다.
-`clean` 기본 CLI 연결은 후속 작업이다.
+적재 후 `python main.py clean`으로 정제할 수 있다. 옵션과 재실행 정책은 [리뷰 정제 안내](CLEAN.md)를 따른다.
 
 ## 검증
 

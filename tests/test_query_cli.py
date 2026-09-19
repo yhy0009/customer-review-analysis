@@ -146,7 +146,7 @@ class QueryCliTests(unittest.TestCase):
         self.assertFalse(self.database.exists())
 
     def test_unconnected_command_does_not_create_database_or_call_ai(self):
-        result = self.run_cli('clean')
+        result = self.run_cli('dashboard')
         self.assertEqual(result.returncode, 2)
         self.assertIn('아직 연결되지 않았습니다', result.stderr)
         self.assertFalse(self.database.exists())

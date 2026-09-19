@@ -25,10 +25,12 @@ with SQLiteReviewRepository(database_path="data/app_database.db") as repository:
   생성 시각을 유지하고 Clean·Analysis를 삭제하여 다시 정제할 수 있게 한다.
 - Clean `upsert`는 제품·날짜·별점·본문이 변경되면 분석을 무효화한다.
   동일 내용의 재저장은 분석을 유지한다.
+- `mark_cleaning_rejected(review_id)`는 원본을 보존하고 Clean·Analysis 삭제와 Raw의
+  `REJECTED` 전환을 같은 트랜잭션으로 수행한다. 제외 사유는 서비스 결과로 반환하며 DB에 추가 저장하지 않는다.
 - 분석 결과와 Raw/Clean 상태를 같은 트랜잭션으로 저장한다. 분석 실패를 기록하면
   이전 결과를 제거하고, 재시도가 성공하면 실패 상태와 오류 메시지를 해제한다.
 - Raw/Clean 배치의 잘못된 행은 savepoint로 격리한다. DB 장애는 해당 저장 배치 전체를
-  롤백한다. AI 배치는 리뷰별로 저장하므로 뒤 항목의 DB 장애 전에 저장한 성공 결과는 남는다.
+  롤백한다. `CleanService`와 AI 배치는 리뷰별로 저장하므로 뒤 항목의 DB 장애 전에 저장한 결과는 남는다.
 - 통계의 전체 수는 Clean 기준이며 분석 완료·실패·미분석 수의 합이다.
   `fetch_unanalyzed_reviews()`는 재시도용으로 실패도 포함하지만,
   `get_statistics().unanalyzed_reviews`는 실패를 제외한다.
@@ -90,3 +92,5 @@ python -m unittest discover -s tests -v
 `test_sqlite_consistency.py`는 같은 파일을 두 경로의 독립 연결로 열어 분석 서비스의
 실패·재시도·강제 재분석·통계를 검증한다. CSV/Excel → Raw → Clean → 분석 저장은
 `test_pipeline_integration.py`에서 확인한다.
+`test_clean_rejection_storage.py`는 제외 상태·관련 결과 삭제의 원자성과 읽기 전용 보호를,
+`test_clean_service.py`와 `test_clean_cli.py`는 정제·재실행·CLI 연결을 검증한다.
