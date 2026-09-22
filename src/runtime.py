@@ -3,6 +3,7 @@
 Each command owns one repository connection. AI services and their SDK are
 imported only when analyze or extract executes, after request validation.
 The file collector and pandas are loaded only when import executes.
+The chart renderer and matplotlib are loaded only when dashboard executes.
 """
 from __future__ import annotations
 
@@ -194,18 +195,32 @@ def _default_clean_factory(
     return CleanService(repository, cleaner).clean_reviews
 
 
+def _default_dashboard_factory(
+    repository: ReviewRepository, config: Mapping[str, Any],
+) -> Callable[[DashboardRequest], DashboardResult]:
+    from src.dashboard_service import DashboardService
+    from src.reporter import FileReportGenerator
+    from src.visualizer import DashboardVisualizer
+
+    visualization = config["visualization"]
+    return DashboardService(
+        repository, DashboardVisualizer(), FileReportGenerator(),
+        font_family=visualization["font_family"], dpi=visualization["dpi"],
+    ).create_dashboard
+
+
 def build_default_handlers(
     *,
     import_factory: ServiceFactory[ImportRequest, BatchOperationResult] | None = _default_import_factory,
     clean_factory: ServiceFactory[CleanRequest, CleanBatchResult] | None = _default_clean_factory,
-    dashboard_factory: ServiceFactory[DashboardRequest, DashboardResult] | None = None,
+    dashboard_factory: ServiceFactory[DashboardRequest, DashboardResult] | None = _default_dashboard_factory,
 ) -> dict[str, CommandHandler]:
-    """Register default import/clean and existing commands, plus supplied services.
+    """Register all nine commands, allowing individual pipeline overrides.
 
     Factories run lazily after argument validation with a fresh repository and
     the loaded config. They return one service method, not a full application.
-    Import and clean use their services by default. Dashboard still needs a
-    factory. Explicit None disables that pipeline command (exit code 2).
+    Import, clean and dashboard use their services by default. Explicit None
+    disables that pipeline command (exit code 2).
     """
     handlers = {
         "analyze": _analyze_handler,
