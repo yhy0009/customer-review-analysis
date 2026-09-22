@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from src.errors import ValidationError
+from src.dashboard_failures import generation_failure
 from src.insight_provenance import validate_profile
 from src.web_dashboard import encode, load_insight_artifact, make_insight_artifact, source_hash
 
@@ -69,7 +70,8 @@ class InsightJobs:
 
     @staticmethod
     def public(job):
-        return {k: job[k] for k in ("id", "status", "review_count", "error", "reused")}
+        return {k: job[k] for k in ("id", "status", "review_count", "error", "reused",
+                                  "error_code", "retry_action")}
 
     def get(self, job_id):
         with self.lock:
@@ -89,7 +91,7 @@ class InsightJobs:
             reused = bool(cached and self.compatible(cached) and matches(cached, details, filters))
             job = {"id": uuid.uuid4().hex, "key": key, "digest": digest,
                    "status": "succeeded" if reused else "running", "review_count": len(details),
-                   "error": None, "reused": reused}
+                   "error": None, "reused": reused, "error_code": None, "retry_action": None}
             self.jobs[job["id"]] = job
             while len(self.jobs) > 64:
                 self.jobs.popitem(last=False)
@@ -100,9 +102,11 @@ class InsightJobs:
 
     def _run(self, job, details, filters):
         path = None
+        saving = False
         try:
             result = self.factory().extract_insights(details, filters)
             artifact = make_insight_artifact(details, result, self.limit, profile=self.profile)
+            saving = True
             self.directory.mkdir(parents=True, exist_ok=True)
             # Readers see either the old complete result or the new complete result.
             fd, name = tempfile.mkstemp(prefix=".insight-", suffix=".tmp", dir=self.directory)
@@ -117,11 +121,11 @@ class InsightJobs:
             path.replace(self.directory / (job["key"] + ".json"))
             with self.lock:
                 job["status"] = "succeeded"
-        except Exception:
+        except Exception as exc:
             # Provider errors may include credentials or review text: never expose them.
             with self.lock:
                 job["status"] = "failed"
-                job["error"] = "생성 또는 저장에 실패했습니다. AI 설정·연결과 저장 경로를 확인한 뒤 재시도하세요."
+                job.update(generation_failure(exc, saving=saving))
         finally:
             try:
                 if path is not None:
