@@ -218,3 +218,20 @@ class DashboardHTTPTests(unittest.TestCase):
         self.assertEqual(self.request(result["chart_url"])[0], 200)
         report = self.request(result["report_urls"]["md"])[2].decode()
         self.assertIn("AI 인사이트가 제공되지 않았습니다", report)
+
+    def test_rating_filters_keep_reviews_statistics_and_reports_in_the_same_scope(self):
+        for query, accepts in (("rating=1", lambda value: value == 1),
+                               ("rating_min=4", lambda value: value >= 4)):
+            with self.subTest(query=query):
+                code, _, body = self.request('/api/snapshot?' + query)
+                self.assertEqual(code, 200)
+                result = json.loads(body)
+                self.assertTrue(result['page']['items'])
+                self.assertTrue(all(accepts(row['rating']) for row in result['page']['items']))
+                self.assertEqual(result['statistics']['total_reviews'], result['page']['total_items'])
+                self.assertTrue(accepts(result['statistics']['average_rating']))
+                self.assertEqual(result['insight_status'], 'scope_mismatch')
+                report = self.request(result['report_urls']['md'])[2].decode()
+                self.assertIn(f"{result['page']['total_items']}건", report)
+                self.assertIn('AI 인사이트가 제공되지 않았습니다', report)
+        self.assertEqual(self.request('/api/snapshot?rating=1&rating_min=4')[0], 400)

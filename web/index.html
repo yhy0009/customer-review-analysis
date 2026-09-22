@@ -32,6 +32,7 @@
         <span class="date-separator" aria-hidden="true">—</span>
         <label><span>종료일</span><input name="date_to" type="date" aria-label="종료일"></label>
         <label><span>리뷰 감정</span><select name="sentiment"><option value="">전체 감정</option><option value="positive">긍정</option><option value="neutral">중립</option><option value="negative">부정</option></select></label>
+        <label><span>별점</span><select name="rating_filter"><option value="">전체 별점</option><optgroup label="정확한 별점"><option value="rating:1">1점</option><option value="rating:2">2점</option><option value="rating:3">3점</option><option value="rating:4">4점</option><option value="rating:5">5점</option></optgroup><optgroup label="최소 별점"><option value="rating_min:1">1점 이상</option><option value="rating_min:2">2점 이상</option><option value="rating_min:3">3점 이상</option><option value="rating_min:4">4점 이상</option><option value="rating_min:5">5점 이상</option></optgroup></select></label>
         <button type="submit" class="button filter-submit">조회</button><button type="reset" class="reset-button">초기화</button>
       </form>
       <div class="scope-row"><p id="scope-text">분석 자료를 불러오고 있습니다.</p><span id="updated-at">—</span></div>
