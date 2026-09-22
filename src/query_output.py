@@ -234,15 +234,17 @@ def format_batch_result(result: BatchOperationResult) -> str:
 
 def format_dashboard_result(result: DashboardResult) -> str:
     """Display returned artifact paths; an empty result does not claim creation."""
-    if not result.artifacts:
-        return "생성된 파일이 없습니다."
     labels = {
         OutputKind.CHART: "차트", OutputKind.REPORT: "리포트", OutputKind.EXPORT: "내보내기",
     }
-    lines = [f"생성 파일: {len(result.artifacts)}개"]
+    lines = [f"생성 파일: {len(result.artifacts)}개" if result.artifacts else "생성된 파일이 없습니다."]
     for artifact in result.artifacts:
         lines.append(
             f"  {labels[artifact.kind]} ({_single_line(artifact.format)}): "
             f"{_single_line(str(artifact.path))}"
         )
+    if result.sentiment_change is not None:
+        from src.sentiment_alerts import format_sentiment_change
+
+        lines.extend(["", format_sentiment_change(result.sentiment_change)])
     return "\n".join(lines)

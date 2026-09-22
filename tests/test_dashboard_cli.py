@@ -100,6 +100,54 @@ class DashboardCliTests(unittest.TestCase):
         self.assertIn('통계 대상 정제 리뷰가 없습니다', text)
         self.assertIn('| 평균 별점 | N/A |', text)
 
+    def test_default_alert_warns_from_real_sqlite_without_changing_success_exit_code(self):
+        now = datetime.now(timezone.utc)
+        # Same product, two complete periods: 1/5 -> 4/5 negative. A different
+        # product has many positive reviews and must not dilute this comparison.
+        rows = [(9, '이어폰', Sentiment.NEGATIVE if i == 0 else Sentiment.POSITIVE) for i in range(5)]
+        rows += [(22, '이어폰', Sentiment.NEGATIVE if i < 4 else Sentiment.POSITIVE) for i in range(5)]
+        rows += [(22, '키보드', Sentiment.POSITIVE) for _ in range(20)]
+        with SQLiteReviewRepository(self.database) as repository:
+            repository.save_raw_reviews([RawReview(source_review_id=str(i)) for i in range(len(rows))],
+                                        DuplicatePolicy.SKIP)
+            repository.save_clean_reviews([
+                CleanReview(id=i, product_name=product, rating=3, review_date=date(2026, 9, day),
+                            review_text='감정 변화 검증용 합성 리뷰', cleaned_at=now)
+                for i, (day, product, _) in enumerate(rows, 1)], DuplicatePolicy.SKIP)
+            for i, (_, _, sentiment) in enumerate(rows, 1):
+                repository.save_analysis(AnalysisResult(review_id=i, sentiment=sentiment,
+                    confidence=.9, analyzed_at=now, provider='fake', model='test'))
+        result = self.run_cli('dashboard', '--date-to', '2026-09-22', '--product', '이어폰')
+        self.assert_artifacts(result, self.root / 'configured/output', 'md')
+        self.assertIn('[경고] 부정 리뷰 비율 급증', result.stdout)
+        self.assertIn('20.0% → 80.0% (+60.0%p', result.stdout)
+        self.assertIn('2026-09-09 ~ 2026-09-15', result.stdout)
+        self.assertIn('2026-09-16 ~ 2026-09-22', result.stdout)
+        self.assertNotIn('[경고]', result.stderr)
+
+    def test_partial_comparison_period_is_withheld_and_alerts_can_be_disabled(self):
+        self.seed()
+        result = self.run_cli('dashboard', '--date-from', '2026-09-22', '--date-to', '2026-09-22')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('[판정 보류] 날짜 필터', result.stdout)
+        self.assertNotIn('[경고]', result.stdout)
+        result = self.run_cli('dashboard', '--output', 'disabled', '--no-alerts')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('감정 변화', result.stdout)
+        self.assertNotIn('판정 보류', result.stdout)
+
+    def test_bad_alert_settings_are_rejected_before_database_creation(self):
+        for options in (('--alert-days', '0'), ('--alert-days', '3651'),
+                        ('--alert-threshold', 'nan'), ('--alert-threshold', 'inf'),
+                        ('--alert-threshold', '0'), ('--alert-threshold', '101'),
+                        ('--alert-min-reviews', '0'), ('--date-to', '0001-01-01')):
+            with self.subTest(options=options):
+                result = self.run_cli('dashboard', *options, no_packages=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn('Traceback', result.stderr)
+                self.assertFalse(result.stdout)
+                self.assertFalse(self.database.exists())
+
     def test_output_file_is_error_without_success_output_or_damage(self):
         target = self.root / 'blocked'
         target.write_bytes(b'keep existing contents')
