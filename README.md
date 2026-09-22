@@ -266,19 +266,3 @@ AI 인사이트는 별도로 준비한 파일을 연결하며 페이지 조회�
 * [ ] **영구 저장소 원칙**: 메모리 관리가 아닌 SQLite / JSONL 영구 저장을 거쳐야 합니다.
 * [ ] **모듈화 준수**: 단일 파일 집중 개발을 지양하고 최소 4개 이상의 책임별 모듈로 분리합니다.
 * [ ] **예외 처리 및 로깅**: AI API 실패 또는 파일 형식 오류 시 적절한 에러 로그(`logging`)를 남기고 프로세스가 비정상 종료되지 않도록 처리합니다.
-
----
-
-## 📊 10. 제품·카테고리별 비교 분석
-
-추가 명령 `compare`로 저장된 리뷰의 제품·카테고리별 건수, 평균 별점, 감정 비율과 분석
-완료율을 비교할 수 있습니다. API 호출 없이 CLI 표·CSV·JSON과 선택적 PNG 차트를 생성합니다.
-
-```bash
-python main.py compare --name "이어폰 A" --name "이어폰 B"
-python main.py compare --group-by category --output output/comparison --chart
-```
-
-카테고리는 CSV·Excel의 선택 열 `category`, `product_category`, `카테고리`, `상품분류`를
-사용합니다. 값이 없는 리뷰는 별도 그룹으로 포함하며 분석 0건의 감정 비율은 `N/A`입니다.
-입력 예시·지표 기준·옵션·파일 보호 규칙은 [비교 분석 안내](docs/COMPARISON.md)를 참고하세요.

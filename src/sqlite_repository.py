@@ -14,7 +14,6 @@ from pathlib import Path
 
 from src.config import get_logger
 from src.errors import RawReviewChangedError, StorageError, ValidationError
-from src.comparison import ComparisonGroup, category_from_payload, normalize_group_name
 
 from typing import Any, Iterator, List, Mapping, Optional, Sequence
 from collections import Counter, defaultdict
@@ -715,49 +714,6 @@ class SQLiteReviewRepository:
             return _aggregate_statistics(rows)
         except (ValueError, TypeError, ValidationError) as exc:
             raise StorageError("저장된 통계 데이터를 해석할 수 없습니다.") from exc
-
-    def get_comparison_groups(
-        self, filters: ReviewFilter, *, group_by: str, category: str | None = None,
-    ) -> list[ComparisonGroup]:
-        """Read all matching clean/analysis/raw metadata in one SQLite snapshot."""
-        if group_by not in ("product", "category"):
-            raise ValidationError("비교 기준은 product 또는 category여야 합니다.")
-        where, params = _build_where(filters)
-        try:
-            rows = self._require_connection().execute(
-                "SELECT c.id, c.product_name, c.rating, c.review_date, c.status, "
-                "a.sentiment, a.keywords, r.raw_payload "
-                "FROM clean_reviews c "
-                "JOIN raw_reviews r ON r.id = c.id "
-                "LEFT JOIN analysis_results a ON a.review_id = c.id "
-                + where + " ORDER BY c.id", params,
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise StorageError("비교 통계를 조회할 수 없습니다.") from exc
-
-        grouped = defaultdict(list)
-        products = defaultdict(set)
-        for row in rows:
-            try:
-                row_category = (
-                    category_from_payload(json.loads(row["raw_payload"]))
-                    if group_by == "category" or category is not None else None
-                )
-                if category is not None and row_category != category:
-                    continue
-                product = normalize_group_name(row["product_name"])
-                name = product if group_by == "product" else row_category
-                grouped[name].append(row)
-                products[name].add(product)
-            except (ValueError, TypeError, RecursionError) as exc:
-                raise StorageError(
-                    f"리뷰 ID={row['id']}의 카테고리 메타데이터를 확인하세요: {exc}"
-                ) from exc
-        try:
-            return [ComparisonGroup(name, len(products[name]), _aggregate_statistics(items))
-                    for name, items in grouped.items()]
-        except (ValueError, TypeError, ValidationError) as exc:
-            raise StorageError("저장된 비교 통계 데이터를 해석할 수 없습니다.") from exc
 
     @contextmanager
     def read_snapshot(self) -> Iterator[SQLiteReviewRepository]:

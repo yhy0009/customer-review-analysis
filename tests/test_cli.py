@@ -23,7 +23,6 @@ class CliParserTests(unittest.TestCase):
         self.assertEqual(
             set(subparsers_action.choices),
             {
-                "compare",
                 "import",
                 "clean",
                 "analyze",

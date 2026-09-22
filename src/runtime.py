@@ -10,7 +10,6 @@ import argparse
 from typing import Any, Callable, Mapping, TypeVar
 
 from src.cli import CommandHandler
-from src.comparison_cli import handle_comparison
 from src.errors import ConfigError, OutputError
 from src.export_service import ExportService
 from src.handlers import (
@@ -209,7 +208,6 @@ def build_default_handlers(
     factory. Explicit None disables that pipeline command (exit code 2).
     """
     handlers = {
-        "compare": handle_comparison,
         "analyze": _analyze_handler,
         "extract": _extract_handler,
         "export": _export_handler,
