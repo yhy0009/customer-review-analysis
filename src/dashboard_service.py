@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.errors import OutputError
-from src.models import DashboardRequest, DashboardResult, OutputArtifact
+from src.models import DashboardRequest, DashboardResult, OutputArtifact, OutputKind
 from src.services import ReportGenerator, ReviewVisualizer
 from src.sentiment_alerts import detect_sentiment_change
 from src.storage import ReviewRepository
@@ -22,8 +22,8 @@ def _utc_now() -> datetime:
 class DashboardService:
     """Borrow the repository; rendering and connection ownership stay outside it.
 
-    Both generators finish in a temporary directory before publishing any file.
-    Publication is atomic per file, not a transaction spanning both artifacts.
+    All generators finish in a temporary directory before publishing any file.
+    Publication is atomic per file, not a transaction spanning all artifacts.
     """
 
     def __init__(
@@ -49,12 +49,16 @@ class DashboardService:
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         chart_name = f"dashboard_{timestamp}.png"
         report_name = f"report_{timestamp}.{request.report_format.value}"
+        html_name = f"dashboard_{timestamp}.html"
         published: list[OutputArtifact] = []
         try:
             # The CLI's output is always a directory, even if it ends in .png.
             directory = request.output.resolve()
             directory.mkdir(parents=True, exist_ok=True)
-            for name in (chart_name, report_name):
+            output_names = [chart_name, report_name]
+            if request.generate_html:
+                output_names.append(html_name)
+            for name in output_names:
                 self._check_target(directory / name, force=request.force)
             with tempfile.TemporaryDirectory(prefix=".dashboard-", dir=directory) as temporary:
                 stage = Path(temporary)
@@ -77,6 +81,21 @@ class DashboardService:
                         raise OutputError("대시보드 생성기가 올바른 산출물 파일을 반환하지 않았습니다.")
                     names.add(source.name)
                     self._check_target(directory / source.name, force=request.force)
+                if request.generate_html:
+                    from src.html_dashboard import render_dashboard_html
+
+                    if any(chart.kind is not OutputKind.CHART or chart.format != "png" for chart in charts):
+                        raise OutputError("HTML 대시보드에는 PNG 차트가 필요합니다.")
+                    # Validate staged paths above before reading generated files.
+                    content = render_dashboard_html(
+                        statistics, [chart.path.read_bytes() for chart in charts],
+                        filters=request.filters, generated_at=now, sentiment_change=sentiment_change,
+                    )
+                    html_path = stage / html_name
+                    with html_path.open("x", encoding="utf-8") as stream:
+                        stream.write(content)
+                    artifacts.append(OutputArtifact(OutputKind.REPORT, html_path, "html"))
+                    self._check_target(directory / html_name, force=request.force)
                 for artifact in artifacts:
                     target = directory / artifact.path.name
                     if request.force:
