@@ -15,7 +15,7 @@
 - **데이터 파이프라인**: CSV/Excel 로드, 텍스트 정규화, 유효성 검증 및 Raw/Clean 분리 저장 (중복 skip/upsert 지원)
 - **AI 감정 분석 & 요약**: LLM API 기반 감정/신뢰도 분석, 긍·부정 빈출 키워드 및 개선 제안 자동 추출
 - **CLI 데이터 조회 및 관리**: 서브커맨드 기반 페이징/필터링 조회, 통계 요약, 데이터 다중 포맷 Export (CSV/JSONL/Excel)
-- **비즈니스 대시보드 시각화**: Matplotlib 기반 감정 분포, 시간별 추이, 별점-감정 매트릭스 차트(PNG) 및 종합 리포트(TXT/MD) 생성
+- **비즈니스 대시보드 시각화**: Matplotlib 기반 감정 분포, 시간별 추이, 별점-감정 매트릭스 차트(PNG), 종합 리포트(TXT/MD), 차트·통계를 내장한 단일 HTML 생성
 
 ---
 
@@ -117,6 +117,7 @@ main (배포 및 제출용 안정화 브랜치)
 │   └── app_database.db      # SQLite 영구 저장소 (raw/clean 테이블)
 ├── output/                  # 생성된 차트 이미지 및 리포트 파일
 │   ├── dashboard_20260922_010203.png  # 차트 3종과 키워드를 담은 통합 이미지
+│   ├── dashboard_20260922_010203.html # --html 지정 시 생성하는 독립 실행 HTML
 │   └── report_20260922_010203.md
 ├── src/
 │   ├── __init__.py
@@ -136,6 +137,7 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── analyzer.py          # AI 감정 분석 및 키워드/요약 추출
 │   ├── visualizer.py        # Matplotlib 대시보드 차트 시각화
 │   ├── dashboard_service.py # 저장된 통계로 차트·리포트 생성 조율
+│   ├── html_dashboard.py    # PNG·통계·감정 변화 알림을 내장한 HTML 생성
 │   ├── reporter.py          # 종합 리포트 생성기
 │   └── exporter.py          # CSV/JSONL/Excel 데이터 내보내기
 ├── tests/                   # 단위 테스트
@@ -185,6 +187,7 @@ cp config/config_example.json config/config.json
 현재 `main.py`의 기본 실행은 **`import`, `clean`, `analyze`, `extract`, `list`, `show`, `stats`, `dashboard`, `export`** 9개 명령을 지원합니다.
 CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 분석·인사이트 추출·조회·차트 및 리포트 생성·내보내기를 수행합니다.
 `dashboard`는 API 호출 없이 저장된 통계로 PNG와 TXT/Markdown 리포트를 생성합니다.
+`--html`을 추가하면 차트·통계·조회 조건·감정 변화 알림을 담은 HTML도 생성합니다. HTML 파일 하나만 복사해 브라우저에서 열 수 있습니다.
 실행 시 최근 7일과 직전 7일의 부정 비율을 비교해 20%p 이상 상승하면 경고합니다(기간별 분석 최소 5건).
 필터·출력 경로·덮어쓰기 사용법은 [대시보드 CLI 안내](docs/DASHBOARD.md)를 참고하세요.
 `import`의 입력 형식과 중복 정책은 [원본 리뷰 적재 안내](docs/IMPORT.md)를 참고하세요.
@@ -228,6 +231,9 @@ python main.py stats
 
 # 7. 저장된 분석 결과로 통합 PNG + Markdown 리포트 생성 (API 호출 없음)
 python main.py dashboard --output output/ --report-format md
+
+# 단일 HTML 대시보드도 함께 생성
+python main.py dashboard --output output/ --html
 
 # 8. 데이터 내보내기 (Export)
 python main.py export --format csv --sentiment negative --rating-min 3 --output output/negative_reviews.csv
