@@ -283,7 +283,7 @@ SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 �
 | `list` | `sentiment`, `date_from`, `date_to`, `rating`, `product`, `page`, `size`, `sort`, `order` |
 | `show` | `review_id` |
 | `stats` | `sentiment`, `date_from`, `date_to`, `product` |
-| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force` |
+| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force`, `alert_days`, `alert_threshold`, `alert_min_reviews`, `no_alerts` |
 | `export` | `format`, `output`, `sentiment`, `date_from`, `date_to`, `rating_min`, `product`, `force` |
 
 각 핸들러는 `argparse.Namespace`를 명령별 Request dataclass로 변환한 뒤 서비스
@@ -883,6 +883,14 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다.
 `DashboardService`는 `get_statistics(filters)`를 한 번 호출하고 같은 결과를 차트와 리포트에 전달한다.
 AI 호출이나 인사이트 캐시 조회 없이 `insight=None`으로 결과를 반환한다.
+`DashboardRequest.alert_options`는 기본 `SentimentAlertOptions(days=7, threshold_pp=20, min_reviews=5)`이며,
+`None`이면 감정 변화 판정을 생략한다. CLI는 `--alert-days`, `--alert-threshold`,
+`--alert-min-reviews`, `--no-alerts`로 이를 지정한다.
+서비스는 기존 `daily_sentiment_counts`에서 인접한 두 기간의 분석 완료 건수·부정 건수를 비교한다.
+`DashboardResult.sentiment_change`는 기본값 `None`인 추가 필드이며 판정·기간·건수·설정을 담는다.
+`format_dashboard_result()`는 이 값이 있으면 경고·정상·판정 보류를 stdout에 출력한다.
+알림 판정은 성공 종료 코드 0을 바꾸지 않는다. 날짜·표본·상승 기준은
+[대시보드 CLI 안내](DASHBOARD.md)의 감정 변화 알림 절을 따른다.
 `visualization.font_family`·`dpi`는 런타임이 주입한다. PNG와 리포트는 동일한 UTC 파일명 시각을
 사용하며, 둘 다 임시 디렉터리에서 생성한 후 파일별로 게시한다. 출력 실패와 덮어쓰기의 범위는
 [대시보드 CLI 안내](DASHBOARD.md)를 따른다.

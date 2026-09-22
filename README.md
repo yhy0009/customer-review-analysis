@@ -185,6 +185,7 @@ cp config/config_example.json config/config.json
 현재 `main.py`의 기본 실행은 **`import`, `clean`, `analyze`, `extract`, `list`, `show`, `stats`, `dashboard`, `export`** 9개 명령을 지원합니다.
 CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 분석·인사이트 추출·조회·차트 및 리포트 생성·내보내기를 수행합니다.
 `dashboard`는 API 호출 없이 저장된 통계로 PNG와 TXT/Markdown 리포트를 생성합니다.
+실행 시 최근 7일과 직전 7일의 부정 비율을 비교해 20%p 이상 상승하면 경고합니다(기간별 분석 최소 5건).
 필터·출력 경로·덮어쓰기 사용법은 [대시보드 CLI 안내](docs/DASHBOARD.md)를 참고하세요.
 `import`의 입력 형식과 중복 정책은 [원본 리뷰 적재 안내](docs/IMPORT.md)를 참고하세요.
 `clean`의 정제 기준·재실행 정책과 제외 상태 처리는 [리뷰 정제 안내](docs/CLEAN.md)를 참고하세요.
