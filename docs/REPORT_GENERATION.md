@@ -55,7 +55,7 @@ N을 더 크게 설정해도 추가 키워드를 조회하지 않는다.
   실패하면 `OutputError`를 반환하고 기존 파일을 보존하며 임시 파일을 정리한다.
 - 잘못된 옵션이나 파일 확장자는 `ValidationError`다. 파일 I/O 예외의 원문은 노출하지 않는다.
 
-## dashboard 담당자 연결 예시
+## 리포터 단독 호출과 dashboard 연결
 
 ```python
 from pathlib import Path
@@ -76,12 +76,14 @@ artifact = FileReportGenerator().generate_report(
     report_format=ReportFormat.MARKDOWN,
     force=False,
 )
-# dashboard 조율자가 artifact를 DashboardResult.artifacts에 포함한다.
+# 단독 호출도 생성된 리포트의 절대 경로를 반환한다.
 ```
 
-`dashboard` 핸들러 조율과 기본 CLI 등록은 별도 통합 작업이다.
-이 후속 브랜치는 extract PR #12 위에서 분기했으며, 리포터 본체는 공통 모델만 소비한다.
-SQLite → extract → reporter를 검증하는 통합 테스트는 PR #12 구현을 사용한다.
+`python main.py dashboard`는 `DashboardService`를 통해 차트와 리포트를 함께 생성한다.
+기본 CLI는 통계만 사용하며 `insight=None`을 전달한다. `extract` 실행 결과나 웹 인사이트
+캐시가 자동으로 포함되지는 않는다. 인사이트를 포함하는 리포트는 위 단독 호출에서
+`InsightResult`를 전달하거나 웹 대시보드의 리포트 기능을 사용한다.
+출력 디렉터리·필터·덮어쓰기는 [대시보드 CLI 안내](DASHBOARD.md)를 따른다.
 
 ## 검증
 

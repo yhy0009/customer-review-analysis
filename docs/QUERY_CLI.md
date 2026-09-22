@@ -55,7 +55,8 @@ python main.py --config config/query.json stats
 `analyze`·`extract`도 [AI CLI 실행 안내](AI_CLI.md)에 따라 기본 실행할 수 있다.
 `import`도 [원본 리뷰 적재 안내](IMPORT.md)에 따라 기본 실행할 수 있다.
 적재 후 `python main.py clean`으로 정제하면 조회 대상에 포함된다([리뷰 정제 안내](CLEAN.md)).
-`dashboard`의 기본 CLI 연결은 후속 작업이다. 원본만 저장되고 정제가 끝나지 않은
+`dashboard`도 저장된 통계로 차트·리포트를 생성한다([대시보드 CLI 안내](DASHBOARD.md)).
+원본만 저장되고 정제가 끝나지 않은
 리뷰는 조회에 포함되지 않는다. AI 팀이 사용하는 별도 분석 핸들러 주입 방식은 유지한다.
 
 ## 검증

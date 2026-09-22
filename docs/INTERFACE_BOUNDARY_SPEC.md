@@ -233,7 +233,7 @@ CommandHandler = Callable[[argparse.Namespace], Optional[int]]
 
 `src/handlers.py`는 의존성이 주입된 핸들러를 생성한다. `src.cli.main()`에 매핑을
 명시하면 해당 매핑을 사용하고, 생략하면 `src.runtime.build_default_handlers()`로
-현재 연결된 `analyze/extract/list/show/stats/export`의 기본 매핑을 구성한다.
+`import/clean/analyze/extract/list/show/stats/dashboard/export` 9개 명령의 기본 매핑을 구성한다.
 빈 매핑 `{}`도 명시적 주입으로 취급한다.
 
 ```python
@@ -269,8 +269,8 @@ def build_handlers(services: ApplicationServices) -> dict[str, CommandHandler]:
 SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 기본 `export` 명령에 연결됐다.
 기존 `AnalysisService`·`InsightService`도 기본 `analyze`·`extract`에 연결됐다.
 `ImportService`는 수집기와 원본 저장소를 연결하며 기본 `import` 명령에 등록됐다.
-`CleanService`도 기본 `clean` 명령에 등록됐다. `dashboard`는 미연결 오류를 유지한다.
-전체 서비스 구현체가 준비되면 `build_handlers()`를 이용해 9개 명령을 함께 주입할 수 있다.
+`CleanService`와 `DashboardService`도 기본 `clean`·`dashboard` 명령에 등록됐다.
+호출자가 구성한 `ApplicationServices` 구현체는 `build_handlers()`로 함께 주입할 수도 있다.
 
 ### 5.3 CLI 명령 인자
 
@@ -860,7 +860,7 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 
 ## 24. 수집·정제·대시보드 공통 CLI 연결 경계
 
-세 명령에 공통 결과 출력과 선택적 등록 경계를 제공한다. import·clean은 구체 서비스까지 연결됐다.
+세 명령에 공통 결과 출력과 선택적 등록 경계를 제공한다. import·clean·dashboard 모두 구체 서비스까지 연결됐다.
 기존 Request·Result·ApplicationServices 계약은 유지하며, Repository에는 정제 제외 상태 기록 메서드를 추가한다.
 
 - `build_import_handler`, `build_clean_handler`, `build_dashboard_handler`는 요청 생성·
@@ -869,8 +869,8 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   표시한다. failed 또는 rejected가 있으면 기존 배치 계약에 따라 종료 코드 1이다.
 - `format_dashboard_result()`는 반환된 산출물의 종류·포맷·경로를 표시한다.
   빈 목록은 파일이 생성되지 않았음을 표시하며 정상 반환(0)으로 처리한다.
-- `build_default_handlers()`는 기본 import·clean 생성 함수를 사용한다. 해당 factory를 전달하면
-  교체하고, `dashboard_factory`를 전달하면 해당 명령을 추가한다.
+- `build_default_handlers()`는 기본 import·clean·dashboard 생성 함수를 사용한다.
+  해당 factory를 전달하면 그 명령의 기본 서비스를 교체한다.
   명시적인 `None`은 해당 파이프라인 명령을 등록하지 않는다. 생성 함수는
   `(repository, config)`를 받아 기존 요청을 소비하는 서비스 메서드를 반환한다.
 - 요청 검증 후 명령별 SQLite 연결을 열고 생성 함수를 호출한다. 서비스는 연결을 빌려 쓰며
@@ -878,9 +878,14 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 - 생성 함수와 서비스를 실행할 때 발생한 ImportError는 의존성 안내와 코드 2로 처리한다.
   기본 매핑 생성만으로 구체 기능 모듈이나 선택적 SDK를 import하지 않는다.
 
-인자 없는 기본 실행은 import·clean을 포함한 8개 명령을 등록한다. `ImportService`는 수집기의
+인자 없는 기본 실행은 import·clean·dashboard를 포함한 9개 명령을 등록한다. `ImportService`는 수집기의
 원본 목록과 요청의 중복 정책을 `save_raw_reviews()`에 전달하고 배치 결과를 그대로 반환한다.
-날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다. `dashboard`의 기본 연결은 후속 단계다.
+날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다.
+`DashboardService`는 `get_statistics(filters)`를 한 번 호출하고 같은 결과를 차트와 리포트에 전달한다.
+AI 호출이나 인사이트 캐시 조회 없이 `insight=None`으로 결과를 반환한다.
+`visualization.font_family`·`dpi`는 런타임이 주입한다. PNG와 리포트는 동일한 UTC 파일명 시각을
+사용하며, 둘 다 임시 디렉터리에서 생성한 후 파일별로 게시한다. 출력 실패와 덮어쓰기의 범위는
+[대시보드 CLI 안내](DASHBOARD.md)를 따른다.
 자세한 연결 규약과 검증 방법은
 [수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.
 
