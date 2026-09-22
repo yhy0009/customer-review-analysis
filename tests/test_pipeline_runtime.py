@@ -64,7 +64,7 @@ class PipelineRuntimeTests(unittest.TestCase):
                 repository.get_statistics()
 
     def test_registration_is_lazy_and_independent_and_keeps_existing_commands(self):
-        existing = {'import', 'clean', 'analyze', 'extract', 'list', 'show', 'stats', 'export'}
+        existing = {'import', 'clean', 'analyze', 'extract', 'list', 'show', 'stats', 'export', 'compare'}
         self.assertEqual(set(build_default_handlers()), existing)
         factory = Mock()
         for name in ('import', 'clean', 'dashboard'):
