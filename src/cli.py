@@ -282,8 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="기존 출력 파일 덮어쓰기",
     )
 
-    from src.comparison_cli import add_comparison_parser
-    add_comparison_parser(subparsers)
     return parser
 
 
