@@ -1,7 +1,8 @@
-import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView, provenanceText, readQuery, formFilters, ratingSelection} from "./utils.js";
+import {labels, number, percent, dateTime, queryString, scopeText, insightStates, generationView, provenanceText, readQuery, formFilters, ratingSelection, exportView} from "./utils.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {filters: {}, page: 1, search: null, snapshot: null, view: "overview", controller: null, request: 0, reviewRequest: 0};
+const pendingExports = new Set();
 const titles = {
   overview: ["분석 개요", "고객의 목소리를 한눈에", "리뷰의 흐름을 읽고, 다음 개선점을 발견하세요."],
   reviews: ["리뷰 탐색", "한 문장 뒤에 있는 고객 경험", "저장된 리뷰와 분석 결과를 함께 살펴보세요."],
@@ -144,6 +145,27 @@ function renderReviews(data) {
   $("#page-info").textContent = page.total_pages ? `${number(page.number)} / ${number(page.total_pages)} 페이지 · 페이지당 ${page.size}건` : "0건";
   $("#previous-page").disabled = page.number <= 1;
   $("#next-page").disabled = page.number >= page.total_pages;
+  renderExports(data);
+}
+function renderExports(data) {
+  const view = exportView(data.export);
+  $("#review-export-status").textContent = view.message;
+  document.querySelectorAll("[data-export]").forEach(button => {
+    const format = button.dataset.export;
+    const busy = pendingExports.has(`${data.snapshot_id}:${format}`);
+    button.disabled = view.disabled || busy;
+    button.textContent = `${format.toUpperCase()} ${busy ? "준비 중…" : "다운로드"}`;
+    button.setAttribute("aria-busy", String(busy));
+  });
+}
+
+async function downloadAttachment(url, filename) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error((await response.json()).error || "파일을 다운로드하지 못했습니다.");
+  const blobURL = URL.createObjectURL(await response.blob());
+  const anchor = el("a"); anchor.href = blobURL; anchor.download = filename;
+  document.body.append(anchor); anchor.click(); anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(blobURL), 1000);
 }
 function renderChart(data) {
   const image = $("#chart");
@@ -328,17 +350,27 @@ document.addEventListener("click", event => {
   const button = event.target.closest("[data-review]");
   if (button) openReview(Number(button.dataset.review));
 });
+document.querySelectorAll("[data-export]").forEach(button => button.addEventListener("click", async () => {
+  const data = state.snapshot, format = button.dataset.export;
+  if (!data || exportView(data.export).disabled) return;
+  const key = `${data.snapshot_id}:${format}`;
+  if (pendingExports.has(key)) return;
+  pendingExports.add(key); renderExports(data);
+  try {
+    await downloadAttachment(data.export.urls[format], `reviews.${format}`);
+    toast(`요청한 조회 결과의 리뷰 ${number(data.export.row_count)}건을 다운로드했습니다.`);
+  } catch (error) { toast(error.message || "리뷰를 다운로드하지 못했습니다."); }
+  finally {
+    pendingExports.delete(key);
+    if (state.snapshot === data) renderExports(data);
+  }
+}));
 document.querySelectorAll("[data-report]").forEach(button => button.addEventListener("click", async () => {
   const data = state.snapshot, format = button.dataset.report;
   $("#download-menu").open = false;
   if (!data) { toast("먼저 조회 결과를 불러와 주세요."); return; }
   try {
-    const response = await fetch(data.report_urls[format]);
-    if (!response.ok) throw new Error((await response.json()).error);
-    const url = URL.createObjectURL(await response.blob());
-    const anchor = el("a"); anchor.href = url; anchor.download = `review-report.${format}`;
-    document.body.append(anchor); anchor.click(); anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    await downloadAttachment(data.report_urls[format], `review-report.${format}`);
     toast("현재 조회 결과의 리포트를 다운로드했습니다.");
   } catch (error) { toast(error.message || "리포트를 다운로드하지 못했습니다."); }
 }));

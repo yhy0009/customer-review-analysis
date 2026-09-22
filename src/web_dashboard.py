@@ -7,7 +7,7 @@ import time
 import uuid
 import secrets
 from collections import OrderedDict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -18,6 +18,25 @@ from src.models import (
     ReviewQuery, Sentiment, SortField, SortOrder,
 )
 from src.sqlite_repository import SQLiteReviewRepository
+
+
+# Bound retained export data for each of the dashboard's in-memory snapshots.
+EXPORT_LIMIT = 2000
+
+
+def export_selection(repository, filters, total):
+    if total > EXPORT_LIMIT:
+        return None
+    selected = []
+    for page in range(1, (total + 499) // 500 + 1):
+        rows = repository.list_reviews(ReviewQuery(filters=filters, page=page, size=500,
+                                                   sort=SortField.ID, order=SortOrder.ASC))
+        # Preserve the shared exporter format without exposing external source IDs.
+        selected.extend(replace(detail, review=replace(detail.review, source_review_id=None))
+                        for detail in rows.items)
+    if len(selected) != total:
+        raise ValidationError("다운로드 대상 리뷰를 모두 조회하지 못했습니다.")
+    return selected
 
 
 def json_value(value):
@@ -157,6 +176,7 @@ class Snapshot:
     created: float
     chart: bytes | None = None
     generation_source: list | None = None
+    export_reviews: list | None = None
 
 
 class DashboardData:
@@ -201,6 +221,7 @@ class DashboardData:
                 stats = repository.get_statistics(filters)
                 rows = repository.list_reviews(ReviewQuery(filters=filters, page=page, size=10,
                                                           sort=SortField.ID, order=SortOrder.DESC))
+                export_reviews = export_selection(repository, filters, stats.total_reviews)
                 if self.jobs:
                     generation_source = select_analyzed(repository, filters, self.jobs.limit)
                 if artifact:
@@ -227,6 +248,12 @@ class DashboardData:
                     "insight_provenance": public_profile(artifact.get("generation_profile")) if insight else None,
                     "chart_url": f"/api/chart/{token}",
                     "report_urls": {fmt: f"/api/report/{token}/{fmt}" for fmt in ("md", "txt")}}
+        response["export"] = {
+            "status": "available" if export_reviews is not None else "too_large",
+            "row_count": stats.total_reviews, "limit": EXPORT_LIMIT,
+            "urls": {fmt: f"/api/export/{token}/{fmt}" for fmt in ("csv", "jsonl")}
+                    if export_reviews is not None else {},
+        }
         response["generation"] = {"enabled": bool(self.jobs and self.jobs.factory),
                                   "profile": public_profile(self.jobs.profile) if self.jobs else None,
                                   "limit": self.jobs.limit if self.jobs else None,
@@ -234,7 +261,7 @@ class DashboardData:
                                   "token": self.generation_token if self.jobs and self.jobs.factory else None,
                                   "job": self.jobs.latest(filters) if self.jobs else None}
         snapshot = Snapshot(response, stats, insight, by_id, time.monotonic(),
-                            generation_source=generation_source)
+                            generation_source=generation_source, export_reviews=export_reviews)
         with self.lock:
             self.snapshots[token] = snapshot
             while len(self.snapshots) > self.capacity:
