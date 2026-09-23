@@ -209,7 +209,9 @@ CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 �
 > 고정 합성 리뷰의 분류 지표와 서비스 전체 흐름을 검증하는 [AI 평가 도구](docs/AI_EVALUATION.md)도 제공합니다.
 > 대량 리뷰는 근거 배치와 전체 인용 목록으로 처리하며, 저장 평가의 [정책 기반 품질 판정](docs/AI_QUALITY_GATE.md)을 제공합니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
-> `import`에는 실제 리뷰가 들어 있는 입력 파일을 준비하세요. 현재 `data/sample_reviews.csv`는 비어 있습니다.
+> `data/sample_reviews.csv`에 합성 리뷰 40행이 준비되어 있습니다. 중복 2행과 정제 제외 4행을 포함하며,
+> 선택 항목 누락 4건을 포함한 34건이 정제됩니다. [최종 테스트 플로우](docs/FINAL_TEST_FLOW.md)에서
+> 새 DB 준비, 예상 건수, 실제 AI 분석과 인사이트 리포트 확인 순서를 안내합니다.
 
 ```bash
 # 1. 리뷰 데이터 가져오기 (Raw 적재)
