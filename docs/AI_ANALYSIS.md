@@ -48,7 +48,7 @@ print(result.sentiment.value, result.confidence)
   알 수 없는 필드·누락 필드·중복 JSON 키·비정상 숫자·빈 키워드는 거부한다.
 - 키워드는 앞뒤 공백을 제거하고 순서를 유지하여 중복을 제거한다.
 - 내부 리뷰 ID, UTC 분석 시각, 제공자, 응답에 포함된 실제 모델 이름,
-  `review-sentiment-v1` 프롬프트 버전을 결과에 기록한다.
+  `review-sentiment-v2-multilingual` 프롬프트 버전을 결과에 기록한다.
 - `confidence`는 모델의 자기평가다. 정확도로 검증된 확률이 아니므로
   모델 간 비교나 자동 의사결정 기준으로 사용하기 전에 평가가 필요하다.
 - 리뷰는 사용자 메시지의 JSON 데이터로 전달하고 시스템 지시와 분리한다.
@@ -61,6 +61,10 @@ print(result.sentiment.value, result.confidence)
   `ReviewAnalyzer` Protocol을 구현한다.
 
 ## 배치 분석과 저장소 연결
+
+한국어·영어·한영 혼합 원문을 별도 언어 옵션 없이 분석한다. 요약과 키워드는 한국어로
+생성하도록 요청한다. 기존 분석 결과는 자동 갱신하지 않으며 재분석에는 `force=True`가 필요하다.
+샘플 입력, 지원 범위와 언어별 평가는 [다국어 감정 분석 안내](MULTILINGUAL_SENTIMENT.md)를 따른다.
 
 `BatchReviewAnalyzer(repository, provider=None)`는 저장소의 현재 분석 결과를 조회하고,
 기본적으로 기존 분석을 건너뛴다. `force=True`는 선택된 리뷰를 다시 분석한다.

@@ -197,6 +197,8 @@ CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 �
 
 > 구현 현황: GPT-5-mini 단건 분석과 저장소 주입 방식의 배치 분석·재시도를 제공합니다.
 > [AI 분석 실행·테스트 안내](docs/AI_ANALYSIS.md)를 참고하세요.
+> 한국어·영어·한영 혼합 리뷰를 원문으로 분석하고 한국어 요약·키워드를 생성합니다.
+> [다국어 감정 분석 안내](docs/MULTILINGUAL_SENTIMENT.md)에 샘플 입력과 언어별 평가 방법이 있습니다.
 > 조건별 키워드 집계와 AI 이슈·개선안 요약 서비스도 제공합니다.
 > 대상 선택·입력 한도·서비스 연결 방법은 [인사이트 추출 안내](docs/INSIGHT_EXTRACTION.md)에 있습니다.
 > 통계와 선택적 인사이트를 TXT·Markdown으로 저장하는 [종합 리포트 생성기](docs/REPORT_GENERATION.md)를 제공합니다.

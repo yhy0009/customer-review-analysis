@@ -58,6 +58,7 @@ python scripts/evaluate_ai.py --live --dataset evaluation/reviews.validation.v1.
 | `confusion_matrix` | 행은 기대 감정, 열은 예측 감정·error·not_run |
 | `per_class` | 감정별 support·precision·recall·F1. 분모가 0이면 해당 점수는 0 |
 | `macro_f1` | 세 감정 F1의 단순 평균. 특정 감정이 없는 별도 세트에서도 세 감정을 모두 평균 |
+| `metrics_by_language` | 평가셋의 `language` 표식별 동일 분류 지표. 없는 표식은 `unspecified` |
 | `latency` | 실패를 포함한 단건 요청 평균·p95(오름차순 ceil(0.95×N)번째), 초 단위 |
 | `structural_checks_passed` | 분석 저장·재실행 skip·인사이트·키워드 정합성·리포트·상태 보존 검사 결과 |
 | `narrative_review` | 사람이 근거를 검토하기 전에는 pending |
@@ -79,6 +80,11 @@ python scripts/evaluate_ai.py --live --dataset evaluation/reviews.validation.v1.
 설정과 함께 비교한다. 이 도구는 모델을 자동 변경하거나 프롬프트를 최적화하지 않는다.
 
 ## 자동 테스트
+
+한국어·영어·한영 혼합 각 9건의 `evaluation/reviews.multilingual.v1.json`도 제공한다.
+사례의 선택 필드 `language`는 `ko|en|mixed`이며 평가 결과 분리에만 사용한다.
+기존 평가 파일에 이 필드가 없어도 지원한다. 실행과 지표 해석은
+[다국어 감정 분석 안내](MULTILINGUAL_SENTIMENT.md)를 참고한다.
 
 ```bash
 python -m unittest discover -s tests -p 'test_evaluation.py' -v
