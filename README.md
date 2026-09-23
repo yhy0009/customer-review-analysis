@@ -6,6 +6,40 @@ CSV/Excel의 고객 리뷰를 SQLite에 원본·정제 데이터로 나누어 �
 
 > **제출 자료:** [샘플 CSV 40행](data/sample_reviews.csv) · [최종 테스트 플로우](docs/FINAL_TEST_FLOW.md) · [기존 README 보관본](docs/README_LEGACY.md)
 
+## 실행 화면
+
+[샘플 CSV](data/sample_reviews.csv) 40행 중 정제·분석을 마친 **34건**으로 실행한 실제 화면입니다(2026-09-23). AI 문구와 감정 분류는 해당 실행의 저장 결과입니다.
+
+### 웹 대시보드
+
+저장된 리뷰의 핵심 지표, 감정 분포·추이·별점별 차트와 인사이트를 함께 확인합니다.
+
+![웹 대시보드의 분석 완료 34건, 평균 별점 3.00, 감정 차트와 인사이트](docs/images/web-dashboard.jpg)
+
+<details>
+<summary>웹 AI 인사이트 화면 보기</summary>
+
+요약, 주요 이슈·개선 제안과 전체 원문 근거를 별도 화면에서 탐색합니다.
+
+![웹 AI 인사이트의 요약 카드와 주요 이슈·개선 제안](docs/images/web-insights.jpg)
+
+</details>
+
+### 단일 HTML 대시보드
+
+`dashboard --html`로 만든 파일의 인사이트 영역입니다. 차트·통계와 함께 요약·이슈·개선 제안을 파일 안에 담아 서버 없이 열람할 수 있습니다.
+
+![단일 HTML 대시보드의 인사이트 요약과 주요 이슈·개선 제안 2열 배치](docs/images/html-dashboard.jpg)
+
+<details>
+<summary>단일 HTML의 원문 근거 펼치기</summary>
+
+제품별 근거 주제 29개를 보존하며, 주제를 펼치면 리뷰 번호와 저장된 원문 인용을 확인할 수 있습니다.
+
+![단일 HTML에서 배터리 주제를 펼쳐 리뷰 5의 원문 인용을 확인하는 화면](docs/images/html-evidence.jpg)
+
+</details>
+
 ## 1. 프로젝트 목표와 처리 흐름
 
 많은 리뷰에서 반복되는 불편과 칭찬을 찾고, 제품 개선에 참고할 수 있는 근거를 함께 제공합니다. 주요 결과물은 **CLI 애플리케이션과 정적 차트·파일 리포트**이며, 저장된 결과를 탐색하는 로컬 웹 화면도 제공합니다.
