@@ -4,6 +4,7 @@ import json
 import unicodedata
 
 from src.errors import ValidationError
+from src.insight_narrative import NARRATIVE_RULES
 from src.models import InsightCitation, InsightEvidenceGroup
 
 
@@ -82,10 +83,11 @@ COMPACT_PROMPT = """검증된 리뷰 근거의 주요 주제만 한국어로 요
 장점 최대 1개만 제공된다. 이것을 모든 불편·장점 또는 전체 고객의 평가라고 표현하지 않는다.
 심각도 순위로 해석하지 않는다. 제품별 근거를 다른 제품의 경험으로 바꾸지 않는다.
 issues에는 issue_candidates를 순서대로 그대로 복사한다. summary는 160자 이내로 쓴다.
-장점이 있으면 praise_label을 summary에 그대로 포함한다. 수치나 원인을 새로 추정하지 않는다.
+장점이 있으면 praise_label 필드의 문자열 값만 summary 문장에 그대로 포함한다.
+필드명은 복사하지 않는다. 수치나 원인을 새로 추정하지 않는다.
 불편이 없으면 issues와 improvement_suggestions는 빈 배열이다.
 improvement_suggestions는 suggestion_candidates 중 최대 3개를 수정 없이 선택한다.
-개선 효과를 보장하지 않는다. JSON만 반환한다."""
+개선 효과를 보장하지 않는다. JSON만 반환한다.""" + NARRATIVE_RULES
 
 
 def compact_request(groups, review_count):

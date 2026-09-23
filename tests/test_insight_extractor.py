@@ -10,8 +10,8 @@ import httpx
 from openai import OpenAI
 
 from src.ai_provider import AnalysisProvider, NonRetryableAIError, ProviderResponse
-from src.errors import AIProviderError, ConfigError, ValidationError
-from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION
+from src.errors import AIErrorCode, AIProviderError, ConfigError, ValidationError
+from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION, _parse_response
 from src.insight_evidence import EVIDENCE_SCHEMA
 from tests.insight_fixtures import evidence_reply, staged_reply
 from src.models import AnalysisOptions, AnalysisResult, CleanReview, ReviewDetail, ReviewFilter, Sentiment
@@ -114,7 +114,8 @@ class InsightExtractorTests(unittest.TestCase):
             self.extractor.extract_insights(["invalid"], ReviewFilter())
         with self.assertRaises(ValidationError):
             self.extractor.extract_insights([self.review], None)
-        for version in ("review-sentiment-v1", "review-insights-v1", "review-insights-v2", "review-insights-v3"):
+        for version in ("review-sentiment-v1", "review-insights-v1", "review-insights-v2",
+                        "review-insights-v3", "review-insights-v4", "review-insights-v5"):
             with self.subTest(version=version), self.assertRaises(ConfigError):
                 AIInsightExtractor(replace(self.options, prompt_version=version), self.provider)
         self.provider.complete.assert_not_called()
@@ -140,6 +141,35 @@ class InsightExtractorTests(unittest.TestCase):
         self.assertIn(result.improvement_suggestions[0], json.loads(
             self.provider.complete.call_args.args[0][1]["content"])["suggestion_candidates"])
         self.assertEqual(result.summary, "만족함")
+
+    def test_internal_field_names_are_rejected_in_every_narrative_field(self):
+        markers = ("praise_label: 음질 좋음", "praise_lable: 음질 좋음",
+                   r"praise\_label: 음질 좋음", "PRAISE_LABEL", "praiseLabel: 음질 좋음",
+                   "ｐｒａｉｓｅ＿ｌａｂｅｌ： 음질 좋음", "praise label: 음질 좋음",
+                   "issue_candidates", "suggestion_candidates", "summary_scope: top_complaints",
+                   "review_count: 34", '"label": 음질 좋음', "summary: 음질 좋음")
+        for field in ("summary", "issues", "improvement_suggestions"):
+            for marker in markers:
+                with self.subTest(field=field, marker=marker):
+                    payload = dict(self.payload, **{field: marker if field == "summary" else [marker]})
+                    with self.assertRaises(AIProviderError) as error:
+                        _parse_response(json.dumps(payload))
+                    self.assertEqual(error.exception.code, AIErrorCode.INSIGHT_FORMAT)
+                    self.assertNotIn(marker, str(error.exception))
+
+    def test_natural_summary_and_ordinary_english_words_are_preserved(self):
+        for summary in ("배송 지연이 언급됐으며 음질 좋음이라는 장점도 있습니다.",
+                        "USB-C 연결과 label 인쇄에 만족합니다."):
+            payload = dict(self.payload, summary=summary)
+            self.assertEqual(_parse_response(json.dumps(payload)), payload)
+
+    def test_normal_summary_with_internal_name_fails_instead_of_returning_result(self):
+        self.payload["summary"] = "배송 지연이 보고됨. praise_label: 음질 좋음"
+        self.provider.complete.return_value = self.response()
+        with self.assertRaises(AIProviderError) as error:
+            self.extractor.extract_insights([self.review], ReviewFilter())
+        self.assertEqual(error.exception.code, AIErrorCode.INSIGHT_FORMAT)
+        self.assertEqual(self.provider.complete.call_count, 2)
 
     def test_invalid_output_is_rejected_and_never_leaked(self):
         contents = ["secret-response", "[]", "null", "```json\n{}\n```",
