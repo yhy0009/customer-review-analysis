@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Callable
 
 from src.errors import StorageError
-from src.models import ExtractRequest, InsightResult, ReviewQuery, SortField, SortOrder
+from src.models import ExtractRequest, InsightResult, ReviewDetail, ReviewQuery, SortField, SortOrder
 from src.services import InsightExtractor
 from src.storage import ReviewRepository
 
@@ -19,10 +19,12 @@ class InsightService:
     def __init__(
         self, repository: ReviewRepository, extractor: InsightExtractor, *,
         snapshot: Callable[[], AbstractContextManager] = nullcontext,
+        save_result: Callable[[list[ReviewDetail], InsightResult, int | None], object] | None = None,
     ) -> None:
         self.repository = repository
         self.extractor = extractor
         self._snapshot = snapshot
+        self._save_result = save_result
 
     def extract_insights(self, request: ExtractRequest) -> InsightResult:
         filters = replace(request.filters)
@@ -57,4 +59,7 @@ class InsightService:
                         raise StorageError("전체 리뷰를 조회하지 못해 추출을 취소했습니다.")
                     break
                 page_number += 1
-        return self.extractor.extract_insights(reviews, filters, limit=request.limit)
+        result = self.extractor.extract_insights(reviews, filters, limit=request.limit)
+        if self._save_result is not None:
+            self._save_result(reviews, result, request.limit)
+        return result

@@ -80,9 +80,10 @@ artifact = FileReportGenerator().generate_report(
 ```
 
 `python main.py dashboard`는 `DashboardService`를 통해 차트와 리포트를 함께 생성한다.
-기본 CLI는 통계만 사용하며 `insight=None`을 전달한다. `extract` 실행 결과나 웹 인사이트
-캐시가 자동으로 포함되지는 않는다. 인사이트를 포함하는 리포트는 위 단독 호출에서
-`InsightResult`를 전달하거나 웹 대시보드의 리포트 기능을 사용한다.
+기본 CLI는 저장된 `extract` 결과를 현재 리뷰·필터·생성 설정과 검증한 뒤 리포터에
+`InsightResult`로 전달한다. 유효한 결과가 없거나 `--no-insights`이면 `None`이다.
+웹 캐시 디렉터리와 CLI 저장 디렉터리는 별개이며, 호환되는 파일은
+`dashboard --insight-file <경로>`로 직접 연결할 수 있다.
 출력 디렉터리·필터·덮어쓰기는 [대시보드 CLI 안내](DASHBOARD.md)를 따른다.
 
 ## 검증

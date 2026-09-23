@@ -108,7 +108,7 @@ class ProvenanceTests(unittest.TestCase):
             path.write_text(json.dumps(content))
             with self.assertRaises(ValidationError):
                 load_insight_artifact(path)
-        for version in (True, 3, 1):
+        for version in (True, 4, 1):
             path.write_text(json.dumps(dict(original, schema_version=version)))
             with self.assertRaises(ValidationError):
                 load_insight_artifact(path)

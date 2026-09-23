@@ -8,7 +8,7 @@ from typing import Sequence
 
 from src.errors import OutputError, ValidationError
 from src.models import (
-    KeywordCount, ReviewFilter, ReviewStatistics, Sentiment,
+    InsightResult, KeywordCount, ReviewFilter, ReviewStatistics, Sentiment,
     SentimentChangeResult, SentimentChangeStatus,
 )
 from src.sentiment_alerts import format_sentiment_change
@@ -36,6 +36,7 @@ nav{display:flex;flex-wrap:wrap;gap:22px;margin:24px 0 28px;font-size:14px}
 .coverage{margin:14px 0 26px;color:var(--muted);font-size:13px}.panel{padding:24px;margin-bottom:20px;min-width:0;scroll-margin-top:20px}
 .alert{border-left:4px solid #779198}.alert.warning{border-left-color:#bf522f;background:#fff9f3}.alert.normal{border-left-color:#3b8263;background:#f5fbf7}
 .alert pre{font:inherit;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.insight-text{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
 .section-heading .note{margin:0 0 12px}.chart{margin:0}.chart img{display:block;width:100%;height:auto}.chart figcaption{font-size:12px;color:var(--muted);margin:8px 0 0}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.grid .panel{margin-bottom:0}.section-grid{margin-bottom:20px}
 .table-scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:10px 12px;border-bottom:1px solid #e7ecee;text-align:left;overflow-wrap:anywhere}
@@ -67,6 +68,7 @@ def _keywords(title: str, items: Sequence[KeywordCount], css: str) -> str:
 def render_dashboard_html(
     statistics: ReviewStatistics, charts: Sequence[bytes], *, filters: ReviewFilter,
     generated_at: datetime, sentiment_change: SentimentChangeResult | None = None,
+    insight: InsightResult | None = None,
 ) -> str:
     """Consume shared statistics and PNG bytes; perform no file, DB or API I/O."""
     if not charts or any(not isinstance(chart, bytes) or not chart.startswith(_PNG_SIGNATURE) for chart in charts):
@@ -121,6 +123,16 @@ def render_dashboard_html(
     keywords = (_keywords("긍정 리뷰의 키워드", statistics.top_positive_keywords, "positive")
                 + _keywords("부정 리뷰의 키워드", statistics.top_negative_keywords, "negative"))
     empty = '<p class="empty">조건에 맞는 정제 리뷰가 없습니다.</p>' if not statistics.total_reviews else ""
+    insight_html = ""
+    insight_link = ""
+    if insight is not None:
+        from src.query_output import format_insight_result
+
+        insight_link = '<a href="#insight">AI 인사이트</a>'
+        insight_html = ('<section class="panel" id="insight"><h2>AI 인사이트</h2>'
+                        '<p class="note">통계와 인사이트의 대상 범위는 서로 다를 수 있습니다. '
+                        '아래 내용은 표시된 추출 대상에 한정됩니다.</p>'
+                        f'<pre class="insight-text">{_text(format_insight_result(insight))}</pre></section>')
     return f'''<!doctype html>
 <html lang="ko">
 <head>
@@ -137,7 +149,7 @@ def render_dashboard_html(
 <p class="muted">고객의 반응을 숫자와 추이로 살펴보세요.</p>
 <div class="scope" aria-label="조회 조건">{scope_html}</div>
 <p class="stamp">생성 시각 (UTC) <time datetime="{timestamp}">{timestamp}</time></p>
-<nav aria-label="대시보드 목차"><a href="#chart">분석 차트</a><a href="#sentiment">감정 분포</a><a href="#keywords">주요 키워드</a><a href="#details">상세 집계</a></nav>
+<nav aria-label="대시보드 목차"><a href="#chart">분석 차트</a><a href="#sentiment">감정 분포</a><a href="#keywords">주요 키워드</a><a href="#details">상세 집계</a>{insight_link}</nav>
 </header>
 {empty}
 <section class="metrics" aria-label="주요 지표">{metrics_html}</section>
@@ -146,6 +158,7 @@ def render_dashboard_html(
 <section class="panel" id="chart"><div class="section-heading"><h2>분석 차트</h2><p class="note">감정 분포 · 일별 추이 · 별점 · 키워드</p></div>{chart_html}</section>
 <section class="panel" id="sentiment"><h2>감정 분포</h2><p class="note">분석 완료 {statistics.analyzed_reviews:,}건 기준</p>{sentiments}</section>
 <section class="panel" id="keywords"><h2>주요 키워드</h2><p class="note">키워드를 포함한 리뷰 수 · 감정별 상위 10개. 키워드는 리뷰 전체의 감정별로 묶습니다.</p><div class="keyword-grid">{keywords}</div></section>
+{insight_html}
 <div class="grid section-grid" id="details"><section class="panel"><h2>날짜별 감정 분포</h2>{dates}</section><section class="panel"><h2>별점별 감정 분포</h2>{ratings}</section></div>
 <footer><p>생성 시점에 저장된 분석 결과입니다. 최신 내용을 확인하려면 대시보드를 다시 생성하세요.</p><p>이 HTML 파일 하나로 차트와 통계를 열람할 수 있습니다.</p></footer>
 </main></body></html>

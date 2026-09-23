@@ -221,7 +221,7 @@ python main.py clean --policy skip
 # 3. AI 감정 분석 실행
 python main.py analyze --unanalyzed --limit 20
 
-# 4. AI 키워드 및 인사이트 요약 추출
+# 4. AI 키워드 및 인사이트 요약 추출·JSON 자동 저장
 python main.py extract --sentiment negative --limit 50
 
 # 5. 리뷰 목록 및 상세 조회
@@ -231,7 +231,7 @@ python main.py show --id 102
 # 6. 전체 통계 요약 확인
 python main.py stats
 
-# 7. 저장된 분석 결과로 통합 PNG + Markdown 리포트 생성 (API 호출 없음)
+# 7. 저장된 분석 통계와 유효한 추출 결과로 PNG + Markdown 생성 (API 호출 없음)
 python main.py dashboard --output output/ --report-format md
 
 # 단일 HTML 대시보드도 함께 생성

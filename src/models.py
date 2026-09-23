@@ -480,6 +480,7 @@ class DashboardResult:
     statistics: ReviewStatistics
     insight: Optional[InsightResult] = None
     sentiment_change: Optional[SentimentChangeResult] = None
+    insight_status: str = "missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -603,6 +604,8 @@ class DashboardRequest:
     force: bool = False
     alert_options: Optional[SentimentAlertOptions] = field(default_factory=SentimentAlertOptions)
     generate_html: bool = False
+    insight_file: Optional[Path] = None
+    use_insights: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.output, Path) or not self.output.is_absolute():
@@ -611,6 +614,12 @@ class DashboardRequest:
             raise ValidationError("report_format must be a ReportFormat value")
         if not isinstance(self.generate_html, bool):
             raise ValidationError("generate_html must be a boolean")
+        if self.insight_file is not None and (
+            not isinstance(self.insight_file, Path) or not self.insight_file.is_absolute()
+        ):
+            raise ValidationError("insight_file must be an absolute Path")
+        if not isinstance(self.use_insights, bool) or (self.insight_file and not self.use_insights):
+            raise ValidationError("인사이트 파일 지정과 인사이트 생략은 함께 사용할 수 없습니다.")
         if self.alert_options is not None:
             if not isinstance(self.alert_options, SentimentAlertOptions):
                 raise ValidationError("alert_options must be SentimentAlertOptions or None")

@@ -248,4 +248,17 @@ def format_dashboard_result(result: DashboardResult) -> str:
         from src.sentiment_alerts import format_sentiment_change
 
         lines.extend(["", format_sentiment_change(result.sentiment_change)])
+    if result.insight is not None:
+        lines.extend(["", "리포트에 저장된 AI 인사이트를 포함했습니다.", format_insight_result(result.insight)])
+    else:
+        reason = {
+            "missing": "저장된 결과가 없습니다.", "disabled": "--no-insights로 생략했습니다.",
+            "stale": "추출 이후 리뷰 또는 분석 결과가 변경됐습니다.",
+            "config_mismatch": "AI 생성 설정이 변경됐습니다.",
+            "scope_mismatch": "대시보드 조건과 일치하는 결과가 없습니다.",
+            "invalid": "저장 파일 형식이나 원문 근거를 확인할 수 없습니다.",
+        }.get(result.insight_status, "사용할 수 있는 결과가 없습니다.")
+        lines.extend(["", "AI 인사이트 미포함: " + reason])
+        if result.insight_status != "disabled":
+            lines.append("같은 제품·기간 조건으로 extract를 실행한 뒤 dashboard를 다시 생성하세요.")
     return "\n".join(lines)

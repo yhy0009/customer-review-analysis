@@ -234,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_period_filters(dashboard_parser)
     dashboard_parser.add_argument("--product", help="제품명 필터")
+    insight_source = dashboard_parser.add_mutually_exclusive_group()
+    insight_source.add_argument("--insight-file", type=Path, help="자동 선택 대신 포함할 extract 결과 JSON 파일")
+    insight_source.add_argument("--no-insights", action="store_true", help="저장된 AI 인사이트 포함 생략")
     dashboard_parser.add_argument(
         "--output",
         type=Path,

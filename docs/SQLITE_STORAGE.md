@@ -74,7 +74,7 @@ with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as connection:
 보존할 구형 데이터가 있다면 별도 변환 작업으로 처리한다.
 
 1. 쓰는 프로세스를 중지하고 SQLite backup API로 일관된 백업을 만든다.
-2. 원본을 유지한 채 별도의 v1 DB로 옮긴다. 이전 Clean ID → Raw ID 대응표를 만들고
+2. 원본을 유지한 채 별도의 현재 버전(v2) DB로 옮긴다. 이전 Clean ID → Raw ID 대응표를 만들고
    분석 결과의 `review_id`도 함께 변환한다. 원본 없는 Clean, 여러 Clean이 같은 Raw를
    참조하는 경우는 임의 병합하지 않고 처리 방침을 정한다.
 3. Raw JSON 직렬화·중복 키·시각·상태를 변환하고 충돌이나 변환 불가 행을 보고한다.

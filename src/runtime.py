@@ -92,7 +92,10 @@ def _analyze_handler(args: argparse.Namespace) -> int:
 
 
 def _extract_handler(args: argparse.Namespace) -> int:
+    saved_path = None
+
     def execute(request: ExtractRequest) -> InsightResult:
+        nonlocal saved_path
         options = _ai_options(args.app_config)
         try:
             from src.ai_provider import provider_for
@@ -107,11 +110,25 @@ def _extract_handler(args: argparse.Namespace) -> int:
         # budget even when runtime constructs and injects the provider.
         provider = provider_for(options, max_completion_tokens=8192)
         with SQLiteReviewRepository.from_config(args.app_config) as repository:
+            store = _insight_store(repository, args.app_config)
+            store.prepare(request.filters, request.limit)
             extractor = AIInsightExtractor(options, provider=provider)
-            service = InsightService(repository, extractor, snapshot=repository.read_snapshot)
-            return service.extract_insights(request)
+            service = InsightService(repository, extractor, snapshot=repository.read_snapshot,
+                                     save_result=store.save)
+            result = service.extract_insights(request)
+            saved_path = store.saved_path
+            return result
 
-    return build_extract_handler(execute)(args)
+    return build_extract_handler(execute, saved_path=lambda: saved_path)(args)
+
+
+def _insight_store(repository, config):
+    from src.cli_insights import CLIInsightStore
+    from src.config import resolve_project_path
+    from src.insight_provenance import INSIGHT_PROMPT_VERSION, generation_profile
+
+    return CLIInsightStore(repository.database_path, resolve_project_path(config["paths"]["output_dir"]),
+                           generation_profile(_ai_options(config), INSIGHT_PROMPT_VERSION))
 
 
 def _query_handler(
@@ -204,9 +221,11 @@ def _default_dashboard_factory(
     from src.visualizer import DashboardVisualizer
 
     visualization = config["visualization"]
+    store = _insight_store(repository, config)
     return DashboardService(
         repository, DashboardVisualizer(), FileReportGenerator(),
         font_family=visualization["font_family"], dpi=visualization["dpi"],
+        snapshot=repository.read_snapshot, load_insight=lambda request: store.load(repository, request),
     ).create_dashboard
 
 

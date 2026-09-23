@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import os
 import tempfile
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from src.errors import OutputError
-from src.models import DashboardRequest, DashboardResult, OutputArtifact, OutputKind
+from src.errors import OutputError, ValidationError
+from src.models import DashboardRequest, DashboardResult, InsightResult, OutputArtifact, OutputKind
 from src.services import ReportGenerator, ReviewVisualizer
 from src.sentiment_alerts import detect_sentiment_change
 from src.storage import ReviewRepository
@@ -30,6 +31,8 @@ class DashboardService:
         self, repository: ReviewRepository, visualizer: ReviewVisualizer,
         reporter: ReportGenerator, *, font_family: str = "", dpi: int = 150,
         clock: Callable[[], datetime] = _utc_now,
+        snapshot: Callable[[], AbstractContextManager] = nullcontext,
+        load_insight: Callable[[DashboardRequest], tuple[InsightResult | None, str]] | None = None,
     ) -> None:
         self.repository = repository
         self.visualizer = visualizer
@@ -37,12 +40,20 @@ class DashboardService:
         self.font_family = font_family
         self.dpi = dpi
         self._clock = clock
+        self._snapshot = snapshot
+        self._load_insight = load_insight
 
     def create_dashboard(self, request: DashboardRequest) -> DashboardResult:
-        # SQLite aggregates these statistics from a single SELECT. Every output
-        # consumes the same result, including when other commands update the DB.
+        # Read statistics and validate insight sources in one snapshot. Release
+        # it before rendering so concurrent writers do not wait on chart output.
         now = self._clock().astimezone(timezone.utc)
-        statistics = self.repository.get_statistics(request.filters)
+        with self._snapshot():
+            statistics = self.repository.get_statistics(request.filters)
+            insight, insight_status = None, "missing" if request.use_insights else "disabled"
+            if self._load_insight is not None:
+                insight, insight_status = self._load_insight(request)
+            elif request.insight_file is not None:
+                raise ValidationError("인사이트 파일 로더가 연결되지 않았습니다.")
         sentiment_change = (detect_sentiment_change(
             statistics, request.filters, request.alert_options, today=now.date(),
         ) if request.alert_options is not None else None)
@@ -67,7 +78,7 @@ class DashboardService:
                     font_family=self.font_family, dpi=self.dpi, force=False,
                 )
                 report = self.reporter.generate_report(
-                    statistics, None, stage / report_name,
+                    statistics, insight, stage / report_name,
                     report_format=request.report_format, force=False,
                 )
                 artifacts = [*charts, report]
@@ -90,6 +101,7 @@ class DashboardService:
                     content = render_dashboard_html(
                         statistics, [chart.path.read_bytes() for chart in charts],
                         filters=request.filters, generated_at=now, sentiment_change=sentiment_change,
+                        insight=insight,
                     )
                     html_path = stage / html_name
                     with html_path.open("x", encoding="utf-8") as stream:
@@ -110,8 +122,8 @@ class DashboardService:
             if published:
                 message += " 이미 저장된 파일: " + ", ".join(str(a.path) for a in published)
             raise OutputError(message) from exc
-        return DashboardResult(artifacts=published, statistics=statistics, insight=None,
-                               sentiment_change=sentiment_change)
+        return DashboardResult(artifacts=published, statistics=statistics, insight=insight,
+                               sentiment_change=sentiment_change, insight_status=insight_status)
 
     @staticmethod
     def _check_target(target: Path, *, force: bool) -> None:

@@ -4,6 +4,8 @@ import hashlib
 
 from src.errors import ValidationError
 
+INSIGHT_PROMPT_VERSION = "review-insights-v5"
+
 
 def validate_profile(profile):
     fields = {"provider", "model", "prompt_version", "reasoning_effort", "endpoint_sha256"}

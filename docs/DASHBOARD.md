@@ -48,12 +48,43 @@ output/
   Raw만 적재한 리뷰는 포함되지 않으므로 먼저 `clean`을 실행한다.
 - 미분석·실패 리뷰도 정제 리뷰 건수에 포함되며 별점이 있으면 평균 별점에 포함된다. 감정·키워드는 분석 완료
   리뷰를 기준으로 집계한다. 분석이 없으면 `analyze` 후 다시 생성한다.
-- 이 명령은 `extract`를 실행하거나 인사이트 캐시를 읽지 않는다. 리포트에는
-  `AI 인사이트가 제공되지 않았습니다`가 표시된다. AI 요약까지 포함하는 리포트는
-  [웹 대시보드](WEB_DASHBOARD.md) 또는 [리포터 단독 호출](REPORT_GENERATION.md)을 사용한다.
+- `extract`가 저장한 결과 중 현재 데이터·조건·생성 설정과 일치하는 최신 결과를
+  TXT/MD·HTML 리포트와 콘솔에 포함한다. AI를 새로 호출하지 않는다.
+- 사용할 결과가 없으면 통계 보고서를 생성하고 콘솔에 미포함 이유와 `extract` 재실행 안내를 표시한다.
 
 필터는 모든 산출물에 동일하게 적용한다. TXT/MD 리포트에는 필터 문자열이 표시되지 않으며,
 HTML에는 요청의 제품·기간 등 필터가 표시된다.
+
+## AI 추출 결과 연결
+
+```bash
+# 한 번 추출해 저장한 결과를 이후 보고서에서 재사용
+python main.py extract --sentiment negative --limit 50
+python main.py dashboard --html
+
+# 제품·기간은 두 명령에서 동일하게 지정
+python main.py extract --product 이어폰 --date-from 2026-09-01 --limit 50
+python main.py dashboard --product 이어폰 --date-from 2026-09-01 --output output/september
+
+# extract가 출력한 JSON 경로를 직접 선택하거나, 인사이트 포함을 생략
+python main.py dashboard --insight-file /absolute/path/to/insight.json
+python main.py dashboard --no-insights
+```
+
+- 자동 검색 위치는 **설정의 `paths.output_dir/insights/<DB 경로 지문>/`**이다.
+  `dashboard --output`으로 보고서 위치를 바꿔도 검색 위치는 바뀌지 않는다.
+- 제품·날짜·별점 조건은 정확히 같아야 한다. 부정/긍정/중립 리뷰만 추출한 결과는
+  전체 감정 통계에 함께 표시할 수 있다. 여러 결과가 유효하면 생성 시각이 가장 최근인
+  하나를 사용한다. **인사이트 조건·실제 대상 건수·생성 시각**을 별도로 표시하며,
+  `--limit`으로 선택한 일부 리뷰의 요약을 전체 통계의 요약으로 취급하지 않는다.
+- 저장된 리뷰 ID, 원문·분석 데이터 해시와 근거 인용을 다시 검증한다. 리뷰 수정·삭제·
+  재분석 후 달라진 결과는 자동 포함하지 않는다. 한도 없이 추출했다면 새 분석 리뷰도
+  무효화에 반영하고, 한도가 있으면 같은 ID 순서의 선택 대상이 유지되는지 확인한다.
+- 모델·프롬프트·추론 설정·AI 서버가 달라져도 제외한다. API 키 변경은 무효화 사유가 아니다.
+- `--insight-file`의 파일이 없거나 손상됐거나 위 검증에 실패하면 종료 코드 2로 중단하며
+  보고서를 만들지 않는다. 생성 정보가 없는 구형 v1 파일도 재추출이 필요하다.
+  `--no-insights`와 함께 지정할 수 없다.
+- 통계와 원문 검증은 같은 DB 읽기 스냅샷에서 수행하고, 파일 생성 전 트랜잭션을 해제한다.
 
 ## 단일 HTML 대시보드
 
@@ -66,6 +97,7 @@ HTML에는 요청의 제품·기간 등 필터가 표시된다.
 - 정제·분석 완료 건수, 완료율, 평균 별점, 부정 비율, 미분석·실패 건수와 차트를 표시한다.
 - 감정·날짜·별점별 통계 표, 긍정·부정 리뷰의 상위 10개 키워드, 적용 필터와 생성 시각을 표시한다.
 - CLI와 동일한 감정 변화 알림 결과를 포함한다. `--no-alerts`이면 HTML의 알림 영역도 생략한다.
+- 유효한 추출 결과가 있으면 AI 요약·이슈·개선 제안·키워드·원문 근거도 함께 내장한다.
 - 데이터가 없어도 빈 차트와 안내를 생성하며 계산할 수 없는 평균·부정 비율은 `N/A`로 표시한다.
 - 제품명·키워드는 HTML 특수문자를 이스케이프한다. 외부 자원과 스크립트를 차단하는 CSP를 포함한다.
 - 생성 당시 통계의 스냅샷이다. 원본 DB가 바뀌면 명령을 다시 실행해 새 파일을 생성한다.
@@ -135,8 +167,9 @@ python main.py dashboard --product 이어폰 --date-to 2026-09-22 \
 ## 연결과 검증
 
 `src/runtime.py`가 명령 실행 시에만 시각화 모듈을 불러오고 `DashboardService`를 구성한다.
-서비스는 `repository.get_statistics(filters)`를 한 번 호출해 같은 결과를 각 생성기에
-전달하며 DB 내용을 수정하지 않는다. 저장소 연결은 런타임이 닫는다.
+서비스는 `repository.get_statistics(filters)`를 한 번 호출하고 주입된 인사이트 로더로
+저장 결과를 검증한 뒤 같은 통계·인사이트를 각 생성기에 전달한다. DB 내용을 수정하지 않으며
+저장소 연결은 런타임이 닫는다. `DashboardResult.insight_status`로 포함 여부와 사유를 반환한다.
 `DashboardRequest.alert_options`로 알림 설정을 전달하며 `None`이면 생략한다.
 `DashboardResult.sentiment_change`에 판정·기간·건수·설정을 반환한다.
 두 필드는 기본값을 가진 추가 필드이며 `ReviewVisualizer`, `ReportGenerator` 계약은 유지한다.
