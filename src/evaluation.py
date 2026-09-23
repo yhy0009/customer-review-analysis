@@ -9,13 +9,9 @@ import time
 from dataclasses import asdict, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
-from src.ai_provider import AnalysisProvider, provider_for
-from src.analysis_service import AnalysisService
-from src.analyzer import BatchReviewAnalyzer, PROMPT_VERSION as ANALYSIS_PROMPT_VERSION
 from src.errors import AIProviderError, AppError, OutputError, ValidationError
-from src.insight_extractor import AIInsightExtractor, PROMPT_VERSION as INSIGHT_PROMPT_VERSION
 from src.insight_service import InsightService
 from src.insight_evidence import parse_evidence
 from src.models import (
@@ -24,6 +20,9 @@ from src.models import (
 )
 from src.reporter import FileReportGenerator
 from src.storage import SQLiteReviewRepository
+
+if TYPE_CHECKING:
+    from src.ai_provider import AnalysisProvider
 
 
 _LABELS = [s.value for s in Sentiment]
@@ -51,9 +50,12 @@ def load_dataset(path: Path) -> dict:
             raise ValueError
         ids = set()
         for case in cases:
-            if not isinstance(case, dict) or set(case) != {
+            required = {
                 "id", "category", "rating", "product_name", "review_text", "expected", "reason",
-            }:
+            }
+            if not isinstance(case, dict) or not required <= set(case) <= required | {"language"}:
+                raise ValueError
+            if "language" in case and case["language"] not in ("ko", "en", "mixed"):
                 raise ValueError
             for field in ("id", "category", "product_name", "review_text", "reason"):
                 if not isinstance(case[field], str) or not case[field].strip():
@@ -92,6 +94,14 @@ def classification_metrics(rows: list[dict]) -> dict:
             "accuracy_valid": correct / valid if valid else None,
             "macro_f1": sum(v["f1"] for v in per_class.values()) / len(_LABELS),
             "per_class": per_class, "confusion_matrix": matrix}
+
+
+def classification_metrics_by_language(rows: list[dict]) -> dict:
+    """Use fixture annotations only; never infer language from model output."""
+    languages = sorted({row.get("language", "unspecified") for row in rows})
+    return {language: classification_metrics([
+        row for row in rows if row.get("language", "unspecified") == language
+    ]) for language in languages}
 
 
 def _save(path: Path, data: dict) -> None:
@@ -149,10 +159,16 @@ def run_evaluation(
 ) -> dict:
     """Create an exclusive run directory; persist only synthetic fixtures and safe metadata.
 
-    At most N+2 provider calls: retries are disabled and skip verification makes no calls.
+    At most N+101 provider calls: retries are disabled and skip verification makes no calls.
     Output directory must not exist, protecting both prior runs and application DBs.
     """
     dataset = load_dataset(dataset_path)
+    # Fixture validation and metric inspection do not need an AI SDK.
+    from src.ai_provider import provider_for
+    from src.analysis_service import AnalysisService
+    from src.analyzer import BatchReviewAnalyzer, PROMPT_VERSION as ANALYSIS_PROMPT_VERSION
+    from src.insight_extractor import AIInsightExtractor, PROMPT_VERSION as INSIGHT_PROMPT_VERSION
+
     options = replace(options, max_retries=0, prompt_version=None)
     measured = _MeasuredProvider(provider if provider is not None else provider_for(options, max_completion_tokens=8192))
     try:
@@ -229,6 +245,7 @@ def run_evaluation(
         result["errors"].append({"stage": "pipeline", "type": type(exc).__name__})
     finally:
         result["metrics"] = classification_metrics(rows)
+        result["metrics_by_language"] = classification_metrics_by_language(rows)
         durations = sorted(c["elapsed_seconds"] for c in measured.calls if c["stage"] == "analysis")
         result["latency"] = {"analysis_requests": len(durations),
             "analysis_mean_seconds": sum(durations) / len(durations) if durations else None,
