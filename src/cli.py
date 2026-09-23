@@ -130,8 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_parser = subparsers.add_parser(
         "analyze",
-        help="AI API로 리뷰 감정과 신뢰도 분석",
-        description="분석 대상을 선택하여 감정과 신뢰도 점수를 저장합니다.",
+        help="한국어·영어·혼합 리뷰의 감정과 신뢰도 분석",
+        description="한국어·영어·한영 혼합 리뷰를 원문으로 분석하고 한국어 요약·키워드와 감정 점수를 저장합니다.",
     )
     analyze_target = analyze_parser.add_mutually_exclusive_group(required=True)
     analyze_target.add_argument(

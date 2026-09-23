@@ -383,6 +383,13 @@ analyze_reviews(
 - 리뷰별 최신 분석 결과 하나만 유지한다. 재분석 시 기존 결과를 덮어쓰되 모델과
   `prompt_version`을 함께 기록한다.
 
+다국어 감정 분석 확장에서도 위 단건·배치 인터페이스와 `AnalysisResult` 스키마를 유지한다.
+한국어·영어·한영 혼합 원문에 `review-sentiment-v2-multilingual` 프롬프트를 적용하며,
+감정 enum은 동일하고 요약·키워드는 한국어 생성 정책을 사용한다. 입력 언어 표식이나
+추가 번역 호출은 요구하지 않는다. 기존 결과는 자동 교체하지 않으며 `force=True`로 재분석한다.
+평가셋의 선택적 `language=ko|en|mixed`는 모델 입력에 포함하지 않고 언어별 지표에만 사용한다.
+세부 정책은 [다국어 감정 분석 안내](MULTILINGUAL_SENTIMENT.md)를 따른다.
+
 ## 8. 공통 저장소 API
 
 `yhy0009`가 `storage.py`와 저장소 스키마를 소유한다. SQLite를 기본·기준

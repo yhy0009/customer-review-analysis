@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import csv
 import os
 import shutil
 import sqlite3
@@ -128,6 +129,68 @@ class AiCliTests(unittest.TestCase):
         return response(dict(INSIGHT_PAYLOAD,
                              improvement_suggestions=body["suggestion_candidates"][:1]))
 
+    def test_multilingual_csv_import_clean_analyze_and_export_preserve_original_text(self):
+        reviews = [
+            ('한국어 제품', '연결이 안정적이고 음질도 좋아서 만족합니다.', 'positive'),
+            ('English Speaker', "It doesn't hold a charge. I can't recommend it.", 'negative'),
+            ('혼합 Speaker', '아직 unopened 상태라 performance는 모르겠어요.', 'neutral'),
+        ]
+        input_path = self.root / 'multilingual.csv'
+        with input_path.open('w', encoding='utf-8', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['review_id', 'product_name', 'review_date', 'rating', 'review_text'])
+            for index, (product, text, _) in enumerate(reviews, 1):
+                writer.writerow([f'multi-{index}', product, '2026-09-01', 3, text])
+        for args in [('import', '--file', str(input_path)), ('clean',)]:
+            result = self.run_cli(*args)
+            self.assertEqual(result.code, 0, result.stderr)
+            result.sdk.assert_not_called()
+        def complete(**kwargs):
+            body = json.loads(kwargs['messages'][1]['content'])
+            self.assertEqual(set(body), {'product_name', 'rating', 'review_text'})
+            product, text, label = next(row for row in reviews if row[1] == body['review_text'])
+            self.assertEqual(body['product_name'], product)
+            return response({'sentiment': label, 'confidence': .8, 'summary': '검증용 한국어 요약입니다.', 'keywords': ['음질']})
+        self.client.chat.completions.create.side_effect = complete
+        result = self.run_cli('analyze', '--unanalyzed')
+        self.assertEqual(result.code, 0, result.stderr)
+        self.assertIn('succeeded=3', result.stdout)
+        self.assertEqual(self.client.chat.completions.create.call_count, 3)
+        with SQLiteReviewRepository(self.database) as repo:
+            details = [repo.get_review(index) for index in range(1, 4)]
+            for detail, (_, text, label) in zip(details, reviews):
+                self.assertEqual(detail.review.review_text, text)
+                self.assertEqual(detail.analysis.sentiment.value, label)
+                self.assertEqual(detail.analysis.prompt_version, 'review-sentiment-v2-multilingual')
+            self.assertEqual(repo.get_statistics().sentiment_counts, {sentiment: 1 for sentiment in Sentiment})
+        result = self.run_cli('analyze', '--all')
+        self.assertEqual(result.code, 0, result.stderr)
+        self.assertIn('skipped=3', result.stdout)
+        result.sdk.assert_not_called()
+        output = self.root / 'multilingual.jsonl'
+        result = self.run_cli('export', '--format', 'jsonl', '--output', str(output))
+        self.assertEqual(result.code, 0, result.stderr)
+        exported = [json.loads(line) for line in output.read_text().splitlines()]
+        self.assertEqual({row['review_text'] for row in exported}, {row[1] for row in reviews})
+        self.assertEqual({row['prompt_version'] for row in exported}, {'review-sentiment-v2-multilingual'})
+
+    def test_multilingual_excel_import_clean_and_analyze(self):
+        from openpyxl import Workbook
+        workbook = Workbook()
+        workbook.active.append(['review_id', 'product_name', 'review_date', 'rating', 'review_text'])
+        text = "Not what I hoped for. 배터리가 doesn't last even an hour."
+        workbook.active.append(['mixed-excel', 'Mixed Speaker', '2026-09-01', 1, text])
+        input_path = self.root / 'mixed.xlsx'
+        workbook.save(input_path)
+        for args in [('import', '--file', str(input_path)), ('clean',), ('analyze', '--unanalyzed')]:
+            result = self.run_cli(*args)
+            self.assertEqual(result.code, 0, result.stderr)
+        call = self.client.chat.completions.create.call_args
+        self.assertEqual(json.loads(call.kwargs['messages'][1]['content'])['review_text'], text)
+        with SQLiteReviewRepository(self.database) as repo:
+            self.assertEqual(repo.get_review(1).review.review_text, text)
+            self.assertEqual(repo.get_review(1).analysis.prompt_version, 'review-sentiment-v2-multilingual')
+
     def test_analyze_all_limit_skips_existing_and_saves_configured_result(self):
         self.seed()
         result = self.run_cli("analyze", "--all", "--limit", "3")
@@ -148,7 +211,7 @@ class AiCliTests(unittest.TestCase):
             self.assertEqual(detail.analysis.confidence, .85)
             self.assertEqual(detail.analysis.keywords, ["배송", "포장"])
             self.assertEqual(detail.analysis.model, "test-response-model")
-            self.assertEqual(detail.analysis.prompt_version, "review-sentiment-v1")
+            self.assertEqual(detail.analysis.prompt_version, "review-sentiment-v2-multilingual")
         self.assertEqual(details[2].analysis.model, "old-model")
         with SQLiteReviewRepository(self.database) as repository:
             self.assertEqual(repository.fetch_unanalyzed_reviews(), [])
