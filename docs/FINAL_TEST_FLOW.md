@@ -23,12 +23,12 @@
 - 카테고리별 건수: 전자 14, 생활 13, 뷰티 6, 카테고리 없음 1.
 - 감정과 생성 문구는 AI 결과이므로 정확한 감정별 건수·문장을 고정된 성공 조건으로 사용하지 않는다.
 
-아래는 **새 DB와 같은 터미널 세션**을 기준으로 한다. 명령을 순서대로 한 줄씩 실행한다.
+아래는 **macOS/Linux의 새 DB와 같은 터미널 세션**을 기준으로 한다. 설치·설정을 마친 뒤
+프로젝트 루트에서 명령을 순서대로 한 줄씩 실행한다. 설치 방법은 [프로젝트 README](../README.md)를 참고한다.
 
 ## 1. 환경과 테스트 저장 위치 준비
 
 ```bash
-cd "/Users/yhy0009/Documents/코디세이/2차 프로젝트/customer-review-analysis"
 source .venv/bin/activate
 
 export CRA_TEST_RUN="manual-$(date +%Y%m%d-%H%M%S)"
