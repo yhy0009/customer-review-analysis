@@ -1,0 +1,104 @@
+{
+  "status": "pending",
+  "policy_version": "example-v1-not-team-approved",
+  "policy_sha256": "77fdf99cfb589a867daaa4ccf1e4c528a06866357a1f1a5c903240674e1c449b",
+  "dataset_sha256": "88f1d4641130b0a8a8d295853982c049b987a4f4aa87498cf6e1a60f45efdb63",
+  "evaluation_sha256": "111f36ac9dd7326e51af64f4395bfcb67ac7df6a5172981f1fc0f8e03b1d2484",
+  "baseline_sha256": null,
+  "review_sha256": null,
+  "checks": [
+    {
+      "name": "structure",
+      "status": "pass",
+      "actual": true,
+      "required": true
+    },
+    {
+      "name": "accuracy_all",
+      "status": "pass",
+      "actual": 1.0,
+      "required": 0.8
+    },
+    {
+      "name": "macro_f1",
+      "status": "pass",
+      "actual": 1.0,
+      "required": 0.75
+    },
+    {
+      "name": "valid_ratio",
+      "status": "pass",
+      "actual": 1.0,
+      "required": 1.0
+    },
+    {
+      "name": "analysis_p95_seconds",
+      "status": "pass",
+      "actual": 10.3292,
+      "required": 90
+    },
+    {
+      "name": "human_review",
+      "status": "pending",
+      "actual": "pending",
+      "required": "pass"
+    }
+  ],
+  "metrics": {
+    "total": 18,
+    "valid": 18,
+    "correct": 18,
+    "errors": 0,
+    "not_run": 0,
+    "accuracy_all": 1.0,
+    "accuracy_valid": 1.0,
+    "macro_f1": 1.0,
+    "per_class": {
+      "positive": {
+        "support": 6,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "neutral": {
+        "support": 6,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "negative": {
+        "support": 6,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "confusion_matrix": {
+      "positive": {
+        "positive": 6,
+        "neutral": 0,
+        "negative": 0,
+        "error": 0,
+        "not_run": 0
+      },
+      "neutral": {
+        "positive": 0,
+        "neutral": 6,
+        "negative": 0,
+        "error": 0,
+        "not_run": 0
+      },
+      "negative": {
+        "positive": 0,
+        "neutral": 0,
+        "negative": 6,
+        "error": 0,
+        "not_run": 0
+      }
+    },
+    "valid_ratio": 1.0,
+    "analysis_p95_seconds": 10.3292
+  },
+  "narrative_review": "pending",
+  "scope": "classification_and_human_review"
+}

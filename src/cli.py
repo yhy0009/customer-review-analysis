@@ -1,0 +1,355 @@
+"""Command-line interface for the customer review analysis application.
+
+This module owns only the CLI contract. Business logic is supplied through
+command handlers so each feature module can be developed independently.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import date
+from pathlib import Path
+from typing import Callable, Mapping, Optional, Sequence
+
+from src.config import ConfigError, configure_logging, load_config, load_env_file
+
+
+CommandHandler = Callable[[argparse.Namespace], Optional[int]]
+
+
+def _positive_int(value: str) -> int:
+    """Return a positive integer or raise an argparse-friendly error."""
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("양의 정수를 입력해야 합니다.") from exc
+
+    if number < 1:
+        raise argparse.ArgumentTypeError("1 이상의 정수를 입력해야 합니다.")
+    return number
+
+
+def _rating(value: str) -> int:
+    """Validate that a rating is in the supported 1-5 range."""
+    rating = _positive_int(value)
+    if rating > 5:
+        raise argparse.ArgumentTypeError("별점은 1에서 5 사이여야 합니다.")
+    return rating
+
+
+def _iso_date(value: str) -> str:
+    """Validate an ISO 8601 date while preserving the CLI string value."""
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("날짜는 YYYY-MM-DD 형식이어야 합니다.") from exc
+    return value
+
+
+def _add_period_filters(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--date-from",
+        type=_iso_date,
+        help="조회 시작일(YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--date-to",
+        type=_iso_date,
+        help="조회 종료일(YYYY-MM-DD)",
+    )
+
+
+def _add_sentiment_filter(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--sentiment",
+        choices=("positive", "neutral", "negative"),
+        help="감정 분석 결과 필터",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build and return the application's argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="customer-review-analysis",
+        description="AI 기반 고객 리뷰 감정 분석 CLI",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/config.json"),
+        help="설정 파일 경로",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        help="콘솔 로그 레벨(미지정 시 설정 파일 사용)",
+    )
+
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="서브커맨드",
+        metavar="COMMAND",
+        required=True,
+    )
+
+    import_parser = subparsers.add_parser(
+        "import",
+        help="CSV/Excel 리뷰를 raw 저장소에 적재",
+        description="CSV 또는 Excel 파일의 리뷰를 raw 저장소에 적재합니다.",
+    )
+    import_parser.add_argument(
+        "--file",
+        type=Path,
+        required=True,
+        help="가져올 CSV 또는 Excel 파일",
+    )
+    import_parser.add_argument(
+        "--policy",
+        choices=("skip", "upsert"),
+        help="중복 리뷰 처리 정책(미지정 시 설정 파일 사용)",
+    )
+
+    clean_parser = subparsers.add_parser(
+        "clean",
+        help="raw 리뷰를 검증·정규화하여 clean 저장소에 적재",
+        description="raw 리뷰에 정제 규칙과 중복 정책을 적용합니다.",
+    )
+    clean_parser.add_argument(
+        "--policy",
+        choices=("skip", "upsert"),
+        help="중복 리뷰 처리 정책(미지정 시 설정 파일 사용)",
+    )
+    clean_parser.add_argument(
+        "--min-length",
+        type=_positive_int,
+        help="허용할 리뷰의 최소 글자 수(미지정 시 설정 파일 사용)",
+    )
+
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="한국어·영어·혼합 리뷰의 감정과 신뢰도 분석",
+        description="한국어·영어·한영 혼합 리뷰를 원문으로 분석하고 한국어 요약·키워드와 감정 점수를 저장합니다.",
+    )
+    analyze_target = analyze_parser.add_mutually_exclusive_group(required=True)
+    analyze_target.add_argument(
+        "--all",
+        dest="analyze_all",
+        action="store_true",
+        help="모든 clean 리뷰를 분석 대상으로 선택",
+    )
+    analyze_target.add_argument(
+        "--id",
+        dest="review_id",
+        type=_positive_int,
+        help="특정 리뷰 ID만 분석",
+    )
+    analyze_target.add_argument(
+        "--unanalyzed",
+        action="store_true",
+        help="아직 분석되지 않은 리뷰만 선택",
+    )
+    analyze_parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        help="한 번에 분석할 최대 리뷰 수",
+    )
+    analyze_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="기존 분석 결과가 있어도 다시 분석",
+    )
+
+    extract_parser = subparsers.add_parser(
+        "extract",
+        help="AI 기반 키워드·요약·개선 제안 추출",
+        description="조건에 맞는 리뷰를 종합하여 AI 인사이트를 추출합니다.",
+    )
+    _add_sentiment_filter(extract_parser)
+    _add_period_filters(extract_parser)
+    extract_parser.add_argument("--product", help="제품명 필터")
+    extract_parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        help="AI 요청에 포함할 최대 리뷰 수",
+    )
+
+    list_parser = subparsers.add_parser(
+        "list",
+        help="리뷰 목록 조회",
+        description="필터, 정렬, 페이지네이션을 적용해 리뷰 목록을 조회합니다.",
+    )
+    _add_sentiment_filter(list_parser)
+    _add_period_filters(list_parser)
+    list_parser.add_argument("--rating", type=_rating, help="별점 필터(1-5)")
+    list_parser.add_argument("--product", help="제품명 필터")
+    list_parser.add_argument("--page", type=_positive_int, default=1, help="페이지 번호")
+    list_parser.add_argument(
+        "--size",
+        type=_positive_int,
+        default=20,
+        help="페이지당 리뷰 수",
+    )
+    list_parser.add_argument(
+        "--sort",
+        choices=("id", "date", "rating", "sentiment"),
+        default="id",
+        help="정렬 기준",
+    )
+    list_parser.add_argument(
+        "--order",
+        choices=("asc", "desc"),
+        default="desc",
+        help="정렬 방향",
+    )
+
+    show_parser = subparsers.add_parser(
+        "show",
+        help="특정 리뷰 상세 조회",
+        description="리뷰 원문과 감정 분석 결과를 함께 조회합니다.",
+    )
+    show_parser.add_argument(
+        "--id",
+        dest="review_id",
+        type=_positive_int,
+        required=True,
+        help="조회할 리뷰 ID",
+    )
+
+    stats_parser = subparsers.add_parser(
+        "stats",
+        help="전체 또는 조건별 리뷰 통계 출력",
+        description="리뷰 수, 감정별 비율, 평균 별점 등의 통계를 출력합니다.",
+    )
+    _add_sentiment_filter(stats_parser)
+    _add_period_filters(stats_parser)
+    stats_parser.add_argument("--product", help="제품명 필터")
+
+    dashboard_parser = subparsers.add_parser(
+        "dashboard",
+        help="정적 대시보드 차트와 종합 리포트 생성",
+        description="감정 분포, 시간별 추이, 별점별 감정 분포 차트를 생성합니다.",
+    )
+    _add_period_filters(dashboard_parser)
+    dashboard_parser.add_argument("--product", help="제품명 필터")
+    insight_source = dashboard_parser.add_mutually_exclusive_group()
+    insight_source.add_argument("--insight-file", type=Path, help="자동 선택 대신 포함할 extract 결과 JSON 파일")
+    insight_source.add_argument("--no-insights", action="store_true", help="저장된 AI 인사이트 포함 생략")
+    dashboard_parser.add_argument(
+        "--output",
+        type=Path,
+        help="차트와 리포트를 저장할 디렉터리(미지정 시 설정 파일 사용)",
+    )
+    dashboard_parser.add_argument(
+        "--report-format",
+        choices=("txt", "md"),
+        default="md",
+        help="종합 리포트 파일 형식",
+    )
+    dashboard_parser.add_argument(
+        "--html", action="store_true", dest="generate_html",
+        help="차트·통계·감정 변화 알림을 포함한 단일 HTML 파일 추가 생성",
+    )
+    dashboard_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="같은 이름의 기존 출력 파일 덮어쓰기",
+    )
+    dashboard_parser.add_argument(
+        "--alert-days", type=int, default=7,
+        help="최근·직전 부정 비율 비교 기간 일수 (각 기간 기본 7일, 최대 3650일)",
+    )
+    dashboard_parser.add_argument(
+        "--alert-threshold", type=float, default=20.0,
+        help="부정 비율 상승 경고 기준 (퍼센트포인트, 기본 20, 0 초과 100 이하)",
+    )
+    dashboard_parser.add_argument(
+        "--alert-min-reviews", type=int, default=5,
+        help="기간별 판정에 필요한 최소 분석 완료 리뷰 수 (기본 5건)",
+    )
+    dashboard_parser.add_argument(
+        "--no-alerts", action="store_true", help="감정 변화 판정을 생략",
+    )
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="분석 결과를 파일로 내보내기",
+        description="필터링된 리뷰와 분석 결과를 지정 형식으로 내보냅니다.",
+    )
+    export_parser.add_argument(
+        "--format",
+        choices=("csv", "jsonl", "excel"),
+        required=True,
+        help="내보낼 파일 형식",
+    )
+    export_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="내보낼 파일 경로",
+    )
+    _add_sentiment_filter(export_parser)
+    _add_period_filters(export_parser)
+    export_parser.add_argument(
+        "--rating-min",
+        type=_rating,
+        help="내보낼 리뷰의 최소 별점(1-5)",
+    )
+    export_parser.add_argument("--product", help="제품명 필터")
+    export_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="기존 출력 파일 덮어쓰기",
+    )
+
+    from src.comparison_cli import add_comparison_parser
+    add_comparison_parser(subparsers)
+    return parser
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse command-line arguments for application code and tests."""
+    return build_parser().parse_args(argv)
+
+
+def dispatch(
+    args: argparse.Namespace,
+    handlers: Optional[Mapping[str, CommandHandler]] = None,
+) -> int:
+    """Dispatch a parsed command to an injected business-logic handler."""
+    handler = (handlers or {}).get(args.command)
+    if handler is None:
+        print(
+            f"[ERROR] '{args.command}' 명령의 기능 모듈이 아직 연결되지 않았습니다.",
+            file=sys.stderr,
+        )
+        return 2
+
+    result = handler(args)
+    return 0 if result is None else result
+
+
+def main(
+    argv: Optional[Sequence[str]] = None,
+    handlers: Optional[Mapping[str, CommandHandler]] = None,
+) -> int:
+    """Run the CLI and return a process exit code."""
+    args = parse_args(argv)
+    try:
+        load_env_file()
+        app_config = load_config(args.config)
+        logger = configure_logging(app_config, level_override=args.log_level)
+    except ConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
+
+    setattr(args, "app_config", app_config)
+    logger.debug("설정 및 로깅 초기화 완료: command=%s", args.command)
+    if handlers is None:
+        # Delay composition until parsing/configuration succeeded. An explicitly
+        # injected mapping, including {}, always takes precedence.
+        from src.runtime import build_default_handlers
+        handlers = build_default_handlers()
+    return dispatch(args, handlers=handlers)

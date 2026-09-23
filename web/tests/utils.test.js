@@ -1,0 +1,60 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {queryString, scopeText, percent, dateTime, insightStates, generationView, provenanceText} from "../utils.js";
+
+test("query serialization keeps product text literal and drops unknown fields", () => {
+  const query = new URLSearchParams(queryString({product_name: "이어폰 & sentiment=negative <script>", secret: "hidden"}, 2));
+  assert.equal(query.get("product_name"), "이어폰 & sentiment=negative <script>");
+  assert.equal(query.get("page"), "2");
+  assert.equal(query.has("sentiment"), false);
+  assert.equal(query.has("secret"), false);
+});
+test("empty filters reset to all-scope and page one", () => {
+  assert.equal(queryString({}), "page=1");
+  assert.equal(scopeText({}), "전체 제품 · 전체 기간 · 전체 감정");
+  assert.match(scopeText({date_to: "2026-09-16", sentiment: "negative"}), /시작 제한 없음 ~ 2026-09-16 · 부정/);
+});
+test("zero values and missing dates are explicit", () => {
+  assert.equal(percent(0), "0%");
+  assert.equal(dateTime("invalid"), "시각 정보 없음");
+});
+test("missing, stale and different-scope insights have distinct guidance", () => {
+  assert.equal(Object.keys(insightStates).length, 5);
+  assert.notDeepEqual(insightStates.missing, insightStates.stale);
+  assert.match(insightStates.scope_mismatch[1], /현재 필터/);
+});
+test("generation provenance distinguishes requested models and unknown legacy results", () => {
+  assert.match(provenanceText(null), /정보가 없는 이전 결과/);
+  const profile = {model: "routed-model", provider: "openai-compatible", prompt_version: "v5", reasoning_effort: "minimal"};
+  assert.match(provenanceText(profile), /요청 모델 routed-model/);
+  assert.match(provenanceText(profile), /프롬프트 v5/);
+  assert.match(provenanceText(profile), /추론 minimal/);
+  assert.equal(generationView({enabled: true, review_count: 4, limit: 50}, "config_mismatch").disabled, false);
+});
+test("generation requires explicit action and does not offer duplicate calls", () => {
+  const data = {enabled: true, review_count: 6, limit: 50};
+  assert.equal(generationView(data, "missing").disabled, false);
+  assert.match(generationView(data, "missing").message, /6건/);
+  assert.equal(generationView(data, "available").disabled, true);
+  assert.equal(generationView({...data, review_count: 0}, "missing").disabled, true);
+  assert.equal(generationView({...data, enabled: false}, "missing").disabled, true);
+  assert.equal(generationView({...data, job: {status: "running", review_count: 6}}, "missing").disabled, true);
+  assert.equal(generationView({...data, job: {status: "failed", error: "실패"}}, "stale").label, "다시 생성");
+});
+
+test("failed generation explains required checks and cost of a manual retry", () => {
+  const base = {enabled: true, review_count: 6, limit: 50};
+  for (const action of ["check_settings", "check_storage", "change_scope"]) {
+    const job = {status: "failed", error: "설정 확인이 필요합니다.", retry_action: action};
+    const view = generationView({...base, job}, "missing");
+    assert.equal(view.label, "확인 후 다시 생성");
+    assert.equal(view.disabled, false);
+    assert.match(view.message, /설정 확인/);
+    assert.match(view.message, /사용량/);
+    assert.equal(generationView({...base, job}, "available").disabled, true);
+  }
+  const legacy = generationView({...base, job: {status: "failed"}}, "missing");
+  assert.match(legacy.message, /실패/);
+  assert.doesNotMatch(legacy.message, /undefined/);
+  assert.equal(legacy.label, "다시 생성");
+});

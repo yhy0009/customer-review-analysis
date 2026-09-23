@@ -1,0 +1,34 @@
+{
+  "paths": {
+    "output_dir": "output"
+  },
+  "storage": {
+    "backend": "sqlite",
+    "database_path": "data/app_database.db",
+    "raw_table": "raw_reviews",
+    "clean_table": "clean_reviews"
+  },
+  "cleaning": {
+    "duplicate_policy": "skip",
+    "min_review_length": 3
+  },
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "minimal",
+    "api_key": null,
+    "base_url": null,
+    "timeout_seconds": 30,
+    "max_retries": 3
+  },
+  "visualization": {
+    "font_family": "",
+    "dpi": 150
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/app.log",
+    "max_bytes": 1048576,
+    "backup_count": 3
+  }
+}
