@@ -103,6 +103,47 @@ class BatchingTests(unittest.TestCase):
                 [detail(1, Sentiment.NEGATIVE, review_text="가"), detail(2, Sentiment.NEGATIVE)], ReviewFilter())
         self.assertEqual(self.provider.complete.call_count, 2)
 
+    def test_leaked_compact_summary_retries_only_narrative_and_preserves_praise(self):
+        summaries = 0
+
+        def leaking_once(messages, schema, options):
+            nonlocal summaries
+            response = reply(messages, schema, options)
+            if "reviews" not in schema["properties"]:
+                summaries += 1
+                payload = json.loads(response.content)
+                praise = json.loads(messages[1]["content"])["praise_label"]
+                payload["summary"] = (f"praise_label: {praise}" if summaries == 1
+                                      else f"배송 지연이 언급됐으며 {praise}이라는 장점도 있습니다.")
+                return ProviderResponse(json.dumps(payload), "fixture")
+            return response
+
+        self.provider.complete.side_effect = leaking_once
+        result = AIInsightExtractor(replace(self.options, max_retries=1), self.provider,
+                                    batch_size=1, sleep=lambda _: None).extract_insights(
+            [detail(1, Sentiment.NEGATIVE), detail(2, Sentiment.POSITIVE)], ReviewFilter())
+        self.assertEqual(self.provider.complete.call_count, 4)
+        self.assertEqual(summaries, 2)
+        self.assertIn("음질 좋음", result.summary)
+        self.assertNotIn("praise_label", result.summary)
+        self.assertEqual(len(result.evidence_groups), 2)
+
+    def test_invalid_compact_summary_exhausts_retries_without_partial_result(self):
+        def leaking(messages, schema, options):
+            response = reply(messages, schema, options)
+            if "reviews" not in schema["properties"]:
+                payload = json.loads(response.content)
+                payload["summary"] = "praise_label: 음질 좋음"
+                return ProviderResponse(json.dumps(payload), "fixture")
+            return response
+
+        self.provider.complete.side_effect = leaking
+        with self.assertRaises(AIProviderError):
+            AIInsightExtractor(replace(self.options, max_retries=1), self.provider,
+                               batch_size=1, sleep=lambda _: None).extract_insights(
+                [detail(1, Sentiment.NEGATIVE), detail(2, Sentiment.POSITIVE)], ReviewFilter())
+        self.assertEqual(self.provider.complete.call_count, 4)
+
     def test_aliases_preserve_original_labels_and_never_merge_products_or_severity(self):
         selected = [detail(1, product_name="A"), detail(2, product_name="A"), detail(3, product_name="B")]
         rows = [{"complaints": [{"label": label, "quote": "배송"}], "praises": []}

@@ -255,3 +255,7 @@ $RECYCLE.BIN/
 
 # Local dashboard insight artifacts may contain review excerpts.
 /output/dashboard-insights/
+
+# Isolated databases and outputs from docs/FINAL_TEST_FLOW.md.
+/data/final-tests/
+/output/final-tests/

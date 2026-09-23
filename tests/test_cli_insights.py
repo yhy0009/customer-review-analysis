@@ -135,6 +135,17 @@ class CLIInsightStoreTests(unittest.TestCase):
         self.repo.save_analysis(analysis)
         self.assertEqual(self.store.load(self.repo, self.request())[1], "stale")
 
+    def test_v5_artifact_is_excluded_until_regenerated_with_current_prompt(self):
+        old_store = CLIInsightStore(self.database, self.root / "output",
+                                    generation_profile(self.options, "review-insights-v5"))
+        details, result = self.result(summary="praise_label: 음질 좋음")
+        path = old_store.save(details, result, None)
+        self.assertEqual(self.store.load(self.repo, self.request()), (None, "config_mismatch"))
+        with self.assertRaisesRegex(ValidationError, "extract"):
+            self.store.load(self.repo, self.request(insight_file=path))
+        self.save(summary="음질 좋음이라는 장점이 언급됩니다.")
+        self.assertEqual(self.store.load(self.repo, self.request())[1], "available")
+
     def test_new_review_invalidates_unlimited_but_preserves_unchanged_limited_selection(self):
         unlimited, limited = self.save(), self.save(limit=2)
         self.repo.save_raw_reviews([RawReview(source_review_id="new")], DuplicatePolicy.SKIP)
