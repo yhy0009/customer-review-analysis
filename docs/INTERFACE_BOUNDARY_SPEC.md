@@ -987,3 +987,20 @@ AI·리포트 확장으로 기존 `InsightResult` 생성자의 필수 인자는 
   값으로 제거하며 원본 파일 경로·Raw payload를 노출하지 않는다. 기존 CLI·공통 DTO는 유지한다.
 - 만료된 조회는 410, 추가 필터는 400, 미지원 형식은 404다. CSV 수식 방어와 임시 파일
   정리를 유지하며 DB 변경이나 AI 호출은 없다.
+
+## 26. 제품·카테고리 비교 확장
+
+- 독립 명령 `compare`는 `ComparisonRequest` → `ComparisonService.compare` → `ComparisonResult`
+  경계를 사용한다. 모델과 `ComparisonRepository` Protocol은 `src/comparison.py`에 정의한다.
+- `get_comparison_groups(filters, *, group_by, category=None)`는 정제 리뷰와 분석 결과, 원본의
+  카테고리 메타데이터를 단일 SQL 조회로 읽고 `ComparisonGroup(name, product_count, statistics)`를 반환한다.
+- `group_by`는 `product|category`다. NFKC·공백 정리 후 그룹명을 정확히 비교하고, 카테고리 누락은
+  `name=None`으로 구분한다. Raw payload의 기존 선택 열을 사용하므로 DB 버전과 Raw/Clean DTO는 유지한다.
+- 통계 분모는 기존 저장소 집계와 같다. 평균 별점은 모든 정제 리뷰, 감정 비율은 분석 완료 리뷰 기준이다.
+  분석 0건은 외부 출력에서 `N/A|null|빈 셀`로 구분한다. 제품 평균을 다시 평균내지 않는다.
+- 결과 선택·정렬은 서비스, CSV·JSON 및 PNG 게시와 CLI 안내는 비교 출력 모듈이 담당한다.
+  차트는 20그룹씩 나누어 모든 선택 그룹을 포함하고 설정의 폰트·DPI를 사용한다.
+- `compare`는 기본 런타임에서 독립 등록한다. 기존 `ApplicationServices`, `ReviewRepository`,
+  `ReviewVisualizer`, `ReportGenerator`의 필수 메서드를 추가하지 않는다.
+- 이 확장은 yhy0009의 비교 집계·CLI·출력에 Python 비교 차트 구현을 포함한다.
+  입력 규칙과 전체 옵션·오류 코드는 [비교 분석 안내](COMPARISON.md)를 따른다.

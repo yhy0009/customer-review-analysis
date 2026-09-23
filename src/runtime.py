@@ -11,6 +11,7 @@ import argparse
 from typing import Any, Callable, Mapping, TypeVar
 
 from src.cli import CommandHandler
+from src.comparison_cli import handle_comparison
 from src.errors import ConfigError, OutputError
 from src.export_service import ExportService
 from src.handlers import (
@@ -215,7 +216,7 @@ def build_default_handlers(
     clean_factory: ServiceFactory[CleanRequest, CleanBatchResult] | None = _default_clean_factory,
     dashboard_factory: ServiceFactory[DashboardRequest, DashboardResult] | None = _default_dashboard_factory,
 ) -> dict[str, CommandHandler]:
-    """Register all nine commands, allowing individual pipeline overrides.
+    """Register all ten commands, allowing individual pipeline overrides.
 
     Factories run lazily after argument validation with a fresh repository and
     the loaded config. They return one service method, not a full application.
@@ -223,6 +224,7 @@ def build_default_handlers(
     disables that pipeline command (exit code 2).
     """
     handlers = {
+        "compare": handle_comparison,
         "analyze": _analyze_handler,
         "extract": _extract_handler,
         "export": _export_handler,
