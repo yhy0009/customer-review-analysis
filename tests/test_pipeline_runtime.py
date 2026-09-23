@@ -64,7 +64,7 @@ class PipelineRuntimeTests(unittest.TestCase):
                 repository.get_statistics()
 
     def test_registration_is_lazy_and_independent_and_keeps_existing_commands(self):
-        existing = {'import', 'clean', 'analyze', 'extract', 'list', 'show', 'stats', 'export', 'compare'}
+        existing = {'import', 'clean', 'dashboard', 'analyze', 'extract', 'list', 'show', 'stats', 'export', 'compare'}
         self.assertEqual(set(build_default_handlers()), existing)
         factory = Mock()
         for name in ('import', 'clean', 'dashboard'):
@@ -76,7 +76,8 @@ class PipelineRuntimeTests(unittest.TestCase):
 
     def test_explicit_none_keeps_command_unconnected_and_does_not_create_db(self):
         for argv in (['import', '--file', 'reviews.csv'], ['clean'], ['dashboard']):
-            code, out, err = self.run_cli(argv, build_default_handlers(import_factory=None, clean_factory=None))
+            code, out, err = self.run_cli(argv, build_default_handlers(
+                import_factory=None, clean_factory=None, dashboard_factory=None))
             self.assertEqual(code, 2)
             self.assertFalse(out)
             self.assertIn('아직 연결되지 않았습니다', err)
@@ -140,6 +141,25 @@ class PipelineRuntimeTests(unittest.TestCase):
             self.assertEqual(self.run_cli(['clean'], handlers)[0], 0)
         self.assertIsNot(self.connections[0], self.connections[1])
         self.assert_connections_closed()
+
+    def test_default_dashboard_factory_uses_loaded_visualization_settings(self):
+        with patch('src.dashboard_service.DashboardService') as service, \
+             patch('src.visualizer.DashboardVisualizer') as visualizer, \
+             patch('src.reporter.FileReportGenerator') as reporter:
+            service.return_value.create_dashboard.return_value = DashboardResult(
+                [], ReviewStatistics(0, 0, 0, 0))
+            handlers = build_default_handlers()
+            service.assert_not_called()
+            code, out, err = self.run_cli(['dashboard', '--report-format', 'txt', '--force'], handlers)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(service.call_args.args[1:], (visualizer.return_value, reporter.return_value))
+            self.assertEqual(service.call_args.kwargs, {'font_family': 'TestFont', 'dpi': 200})
+            request = service.return_value.create_dashboard.call_args.args[0]
+            self.assertEqual(request.output, self.root / 'output')
+            self.assertEqual(request.report_format.value, 'txt')
+            self.assertTrue(request.force)
+            with self.assertRaises(StorageError):
+                service.call_args.args[0].get_statistics()
 
     def test_bad_request_fails_before_opening_database_or_constructing_service(self):
         factory = Mock()

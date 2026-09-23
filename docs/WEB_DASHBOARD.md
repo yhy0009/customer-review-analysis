@@ -2,7 +2,10 @@
 
 `highslow1536`은 JS 화면과 로컬 조회 어댑터를 담당하고, `sayknow`는 Python 시각화
 자료를 담당한다. 화면은 기존 `DashboardVisualizer`의 통합 PNG를 표시한다.
-`main.py dashboard`의 CLI 연결은 별도 담당 작업이며 이 서버와 독립적이다.
+`main.py dashboard`는 PNG·TXT/MD 파일을 생성하는 별도 CLI이며 이 서버와 독립적이다.
+CLI 실행은 [대시보드 CLI 안내](DASHBOARD.md)를 따른다. 브라우저 화면은 아래 서버로 실행한다.
+파일 하나로 통계와 차트를 공유하려면 `python main.py dashboard --html`로 단일 HTML을 생성한다.
+이 파일은 차트 이미지를 내장하므로 서버 없이 브라우저에서 열 수 있다.
 
 ## 실행
 

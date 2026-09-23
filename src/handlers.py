@@ -43,6 +43,7 @@ from src.models import (
     ReviewFilter,
     ReviewQuery,
     Sentiment,
+    SentimentAlertOptions,
     ShowRequest,
     SortField,
     SortOrder,
@@ -202,6 +203,12 @@ def build_dashboard_request(args: argparse.Namespace) -> DashboardRequest:
         output=_project_path(output),
         report_format=report_format,
         force=getattr(args, "force", False),
+        alert_options=None if getattr(args, "no_alerts", False) else SentimentAlertOptions(
+            days=getattr(args, "alert_days", 7),
+            threshold_pp=getattr(args, "alert_threshold", 20.0),
+            min_reviews=getattr(args, "alert_min_reviews", 5),
+        ),
+        generate_html=getattr(args, "generate_html", False),
     )
 
 

@@ -106,7 +106,7 @@ class PipelineHandlerTests(unittest.TestCase):
         method = Mock(return_value=result)
         code, out, err = self.invoke(build_dashboard_handler, method,
             ['dashboard', '--product', '이어폰', '--date-from', '2026-09-01',
-             '--date-to', '2026-09-15', '--output', 'charts', '--report-format', 'txt', '--force'])
+             '--date-to', '2026-09-15', '--output', 'charts', '--report-format', 'txt', '--force', '--html'])
         request = method.call_args.args[0]
         self.assertEqual(code, 0)
         self.assertFalse(err)
@@ -116,6 +116,7 @@ class PipelineHandlerTests(unittest.TestCase):
         self.assertEqual(request.filters.date_to, date(2026, 9, 15))
         self.assertIs(request.report_format, ReportFormat.TXT)
         self.assertTrue(request.force)
+        self.assertTrue(request.generate_html)
         for artifact in artifacts:
             self.assertIn(str(artifact.path), out)
             self.assertFalse(artifact.path.exists())  # Presentation performs no file I/O.
@@ -126,6 +127,18 @@ class PipelineHandlerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('생성된 파일이 없습니다', out)
         self.assertFalse(err)
+
+    def test_dashboard_alert_options_and_explicit_disable(self):
+        result = DashboardResult([], ReviewStatistics(0, 0, 0, 0))
+        method = Mock(return_value=result)
+        code, _, err = self.invoke(build_dashboard_handler, method,
+            ['dashboard', '--alert-days', '14', '--alert-threshold', '12.5', '--alert-min-reviews', '10'])
+        self.assertEqual(code, 0, err)
+        options = method.call_args.args[0].alert_options
+        self.assertEqual((options.days, options.threshold_pp, options.min_reviews), (14, 12.5, 10))
+        code, _, err = self.invoke(build_dashboard_handler, method, ['dashboard', '--no-alerts'])
+        self.assertEqual(code, 0, err)
+        self.assertIsNone(method.call_args.args[0].alert_options)
 
     def test_invalid_request_fails_before_service_call(self):
         self.config['cleaning']['min_review_length'] = 0
