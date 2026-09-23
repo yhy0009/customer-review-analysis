@@ -14,6 +14,7 @@ CLI 등록 경계를 제공한다. `ImportService`는 수집기와 원본 저장
 `clean`은 `cleaner.clean_reviews`와 `CleanService`를 기본 연결한다([리뷰 정제 안내](CLEAN.md)).
 `dashboard`는 `DashboardVisualizer`, `FileReportGenerator`, `DashboardService`를 기본 연결한다.
 저장된 통계로 PNG·리포트를 생성하며 API 키가 필요 없다([대시보드 CLI 안내](DASHBOARD.md)).
+`--html`이면 차트·통계·필터·감정 변화 알림을 내장한 단일 HTML을 추가한다.
 
 ## 서비스 등록
 
@@ -72,7 +73,7 @@ DB 장애는 중단·전파한다. 앞서 저장된 성공·제외 결과는 유
 
 - ImportRequest에는 프로젝트 루트 기준 절대 입력 경로와 중복 정책이 들어 있다.
 - CleanRequest.options에는 CLI/설정에서 결정된 중복 정책과 최소 길이가 들어 있다.
-- DashboardRequest에는 필터, 절대 출력 경로, 리포트 형식과 force가 들어 있다.
+- DashboardRequest에는 필터, 절대 출력 경로, 리포트 형식, force, 알림 설정과 generate_html이 들어 있다.
   시각화 모듈 구성에는 생성 함수가 `config["visualization"]`의 필요한 값을 전달한다.
 - 요청 검증 실패 시 DB나 서비스 생성 함수를 호출하지 않는다.
 - 서비스 생성 또는 실행 중 ImportError가 발생하면 의존성 확인 안내와 코드 2를 반환한다.

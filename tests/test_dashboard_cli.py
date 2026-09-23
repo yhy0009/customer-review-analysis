@@ -1,5 +1,6 @@
 """Default CLI renders real PNG and reports from isolated SQLite without API keys."""
 import json
+import base64
 import os
 import shutil
 import struct
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from src.models import AnalysisResult, CleanReview, DuplicatePolicy, RawReview, Sentiment
 from src.sqlite_repository import SQLiteReviewRepository
+from tests.html_fixtures import DashboardHTML
 
 
 class DashboardCliTests(unittest.TestCase):
@@ -100,6 +102,36 @@ class DashboardCliTests(unittest.TestCase):
         self.assertIn('통계 대상 정제 리뷰가 없습니다', text)
         self.assertIn('| 평균 별점 | N/A |', text)
 
+    def test_html_is_portable_after_copying_it_alone_and_removing_sibling_outputs(self):
+        self.seed()
+        result = self.run_cli('dashboard', '--html', '--report-format', 'txt',
+                              '--product', '이어', '--date-to', '2026-09-22')
+        directory = self.root / 'configured/output'
+        self.assert_artifacts(result, directory, 'txt')
+        html_files = list(directory.glob('dashboard_*.html'))
+        self.assertEqual(len(html_files), 1)
+        self.assertIn(str(html_files[0]), result.stdout)
+        image = next(directory.glob('dashboard_*.png')).read_bytes()
+        moved = self.other_cwd / 'standalone.html'
+        shutil.copyfile(html_files[0], moved)
+        shutil.rmtree(directory)
+        text = moved.read_text(encoding='utf-8')
+        document = DashboardHTML(text)
+        self.assertEqual(len(document.images), 1)
+        self.assertEqual(base64.b64decode(document.images[0].split(',', 1)[1], validate=True), image)
+        self.assertIn('제품: 이어 (부분 일치)', text)
+        self.assertIn('2026-09-22', text)
+        self.assertNotIn(str(self.root), text)
+        self.assertFalse(any(tag in ('script', 'link') for tag, _ in document.elements))
+
+    def test_empty_html_with_disabled_alerts_contains_no_alert_section(self):
+        result = self.run_cli('dashboard', '--html', '--no-alerts')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = next((self.root / 'configured/output').glob('*.html')).read_text(encoding='utf-8')
+        self.assertIn('조건에 맞는 정제 리뷰가 없습니다', text)
+        self.assertIn('N/A', text)
+        self.assertNotIn('aria-label="감정 변화 알림"', text)
+
     def test_default_alert_warns_from_real_sqlite_without_changing_success_exit_code(self):
         now = datetime.now(timezone.utc)
         # Same product, two complete periods: 1/5 -> 4/5 negative. A different
@@ -117,13 +149,16 @@ class DashboardCliTests(unittest.TestCase):
             for i, (_, _, sentiment) in enumerate(rows, 1):
                 repository.save_analysis(AnalysisResult(review_id=i, sentiment=sentiment,
                     confidence=.9, analyzed_at=now, provider='fake', model='test'))
-        result = self.run_cli('dashboard', '--date-to', '2026-09-22', '--product', '이어폰')
+        result = self.run_cli('dashboard', '--date-to', '2026-09-22', '--product', '이어폰', '--html')
         self.assert_artifacts(result, self.root / 'configured/output', 'md')
         self.assertIn('[경고] 부정 리뷰 비율 급증', result.stdout)
         self.assertIn('20.0% → 80.0% (+60.0%p', result.stdout)
         self.assertIn('2026-09-09 ~ 2026-09-15', result.stdout)
         self.assertIn('2026-09-16 ~ 2026-09-22', result.stdout)
         self.assertNotIn('[경고]', result.stderr)
+        html = next((self.root / 'configured/output').glob('*.html')).read_text(encoding='utf-8')
+        self.assertIn('20.0% → 80.0% (+60.0%p', html)
+        self.assertIn('panel alert warning', html)
 
     def test_partial_comparison_period_is_withheld_and_alerts_can_be_disabled(self):
         self.seed()
@@ -160,7 +195,7 @@ class DashboardCliTests(unittest.TestCase):
     def test_help_and_invalid_requests_work_without_dependencies_or_db(self):
         result = self.run_cli('dashboard', '--help', no_packages=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for option in ('--date-from', '--date-to', '--product', '--output', '--report-format', '--force'):
+        for option in ('--date-from', '--date-to', '--product', '--output', '--report-format', '--force', '--html'):
             self.assertIn(option, result.stdout)
         for options in (('--date-from', '2026-09-23', '--date-to', '2026-09-22'),
                         ('--report-format', 'html')):

@@ -13,6 +13,7 @@ from src.models import (
     OutputKind, RawReview, ReportFormat, ReviewFilter, ReviewStatistics, Sentiment,
 )
 from src.sqlite_repository import SQLiteReviewRepository
+from tests.html_fixtures import DashboardHTML, PNG
 
 
 class DashboardServiceTests(unittest.TestCase):
@@ -41,9 +42,9 @@ class DashboardServiceTests(unittest.TestCase):
         output.write_text('report', encoding='utf-8')
         return OutputArtifact(OutputKind.REPORT, output, report_format.value)
 
-    def run_dashboard(self, *, filters=None, fmt=ReportFormat.MARKDOWN, force=False):
+    def run_dashboard(self, *, filters=None, fmt=ReportFormat.MARKDOWN, force=False, generate_html=False):
         return self.service.create_dashboard(DashboardRequest(
-            filters or ReviewFilter(), self.output, fmt, force))
+            filters or ReviewFilter(), self.output, fmt, force, generate_html=generate_html))
 
     def assert_no_stage(self):
         self.assertEqual(list(self.output.glob('.dashboard-*')), [])
@@ -70,6 +71,71 @@ class DashboardServiceTests(unittest.TestCase):
         self.assertEqual(result.statistics.total_reviews, 0)
         self.assertEqual(result.artifacts[1].format, 'txt')
         self.assertTrue((self.output / 'report_20260922_010203.txt').is_file())
+
+    def png_chart(self, statistics, output, **kwargs):
+        output.write_bytes(PNG)
+        return [OutputArtifact(OutputKind.CHART, output, 'png')]
+
+    def test_html_uses_the_same_statistics_time_filter_and_embeds_staged_png(self):
+        self.visualizer.generate_dashboard.side_effect = self.png_chart
+        result = self.run_dashboard(generate_html=True, filters=ReviewFilter(product_name='휴대용 이어폰'))
+        self.assertEqual([a.format for a in result.artifacts], ['png', 'md', 'html'])
+        self.assertEqual(result.artifacts[2].path, self.output / 'dashboard_20260922_010203.html')
+        text = result.artifacts[2].path.read_text(encoding='utf-8')
+        self.assertIn('휴대용 이어폰', text)
+        self.assertIn('2026-09-22T01:02:03Z', text)
+        self.assertIn('[판정 보류]', text)
+        self.assertEqual(len(DashboardHTML(text).images), 1)
+        self.repository.get_statistics.assert_called_once()
+        self.assert_no_stage()
+
+    def test_existing_html_blocks_all_generation_without_force(self):
+        self.output.mkdir(parents=True)
+        target = self.output / 'dashboard_20260922_010203.html'
+        target.write_text('existing HTML')
+        with self.assertRaisesRegex(OutputError, '--force'):
+            self.run_dashboard(generate_html=True)
+        self.visualizer.generate_dashboard.assert_not_called()
+        self.assertEqual(list(self.output.iterdir()), [target])
+        self.assertEqual(target.read_text(), 'existing HTML')
+
+    def test_html_failure_preserves_all_old_outputs_and_force_can_replace_them(self):
+        self.visualizer.generate_dashboard.side_effect = self.png_chart
+        result = self.run_dashboard(generate_html=True)
+        for artifact in result.artifacts:
+            artifact.path.write_bytes(b'previous version')
+        with patch('src.html_dashboard.render_dashboard_html', side_effect=OutputError('HTML failed')):
+            with self.assertRaises(OutputError):
+                self.run_dashboard(generate_html=True, force=True)
+        self.assertTrue(all(artifact.path.read_bytes() == b'previous version' for artifact in result.artifacts))
+        self.assert_no_stage()
+        result = self.run_dashboard(generate_html=True, force=True)
+        self.assertEqual(result.artifacts[0].path.read_bytes(), PNG)
+        self.assertIn('<!doctype html>', result.artifacts[2].path.read_text())
+        self.assert_no_stage()
+
+    def test_html_write_failure_does_not_publish_partial_files(self):
+        self.visualizer.generate_dashboard.side_effect = self.png_chart
+        original_open = Path.open
+        def fail_html(path, *args, **kwargs):
+            if path.suffix == '.html':
+                raise PermissionError('simulated write failure')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', fail_html), self.assertRaises(OutputError):
+            self.run_dashboard(generate_html=True)
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_html_generator_does_not_read_artifacts_outside_stage(self):
+        outside = self.root / 'outside.png'
+        outside.write_bytes(PNG)
+        self.visualizer.generate_dashboard.side_effect = None
+        self.visualizer.generate_dashboard.return_value = [OutputArtifact(OutputKind.CHART, outside, 'png')]
+        with patch('src.html_dashboard.render_dashboard_html') as render:
+            with self.assertRaises(OutputError):
+                self.run_dashboard(generate_html=True)
+        render.assert_not_called()
+        self.assertEqual(outside.read_bytes(), PNG)
+        self.assertEqual(list(self.output.iterdir()), [])
 
     def test_either_existing_file_blocks_both_outputs_before_rendering(self):
         self.output.mkdir(parents=True)

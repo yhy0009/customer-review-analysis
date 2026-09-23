@@ -283,7 +283,7 @@ SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 �
 | `list` | `sentiment`, `date_from`, `date_to`, `rating`, `product`, `page`, `size`, `sort`, `order` |
 | `show` | `review_id` |
 | `stats` | `sentiment`, `date_from`, `date_to`, `product` |
-| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force`, `alert_days`, `alert_threshold`, `alert_min_reviews`, `no_alerts` |
+| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force`, `alert_days`, `alert_threshold`, `alert_min_reviews`, `no_alerts`, `generate_html` (`--html`) |
 | `export` | `format`, `output`, `sentiment`, `date_from`, `date_to`, `rating_min`, `product`, `force` |
 
 각 핸들러는 `argparse.Namespace`를 명령별 Request dataclass로 변환한 뒤 서비스
@@ -891,8 +891,12 @@ AI 호출이나 인사이트 캐시 조회 없이 `insight=None`으로 결과를
 `format_dashboard_result()`는 이 값이 있으면 경고·정상·판정 보류를 stdout에 출력한다.
 알림 판정은 성공 종료 코드 0을 바꾸지 않는다. 날짜·표본·상승 기준은
 [대시보드 CLI 안내](DASHBOARD.md)의 감정 변화 알림 절을 따른다.
-`visualization.font_family`·`dpi`는 런타임이 주입한다. PNG와 리포트는 동일한 UTC 파일명 시각을
-사용하며, 둘 다 임시 디렉터리에서 생성한 후 파일별로 게시한다. 출력 실패와 덮어쓰기의 범위는
+`DashboardRequest.generate_html: bool = False`는 선택적 단일 HTML 생성을 제어한다.
+`--html`이면 차트·통계·필터·생성 시각·알림을 내장한 HTML을 추가하며,
+`OutputArtifact(kind=REPORT, format="html")`로 반환한다. `ReportFormat`은 기존 txt/md를 유지한다.
+HTML 렌더러는 공유 통계와 PNG 바이트만 소비하고 파일·저장소·API I/O를 수행하지 않는다.
+`visualization.font_family`·`dpi`는 런타임이 주입한다. PNG·리포트·HTML은 동일한 UTC 파일명 시각을
+사용하며, 모두 임시 디렉터리에서 생성한 후 파일별로 게시한다. 출력 실패와 덮어쓰기의 범위는
 [대시보드 CLI 안내](DASHBOARD.md)를 따른다.
 자세한 연결 규약과 검증 방법은
 [수집·정제·대시보드 CLI 연결 안내](CLI_PIPELINE_INTEGRATION.md)를 따른다.

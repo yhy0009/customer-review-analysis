@@ -106,7 +106,7 @@ class PipelineHandlerTests(unittest.TestCase):
         method = Mock(return_value=result)
         code, out, err = self.invoke(build_dashboard_handler, method,
             ['dashboard', '--product', '이어폰', '--date-from', '2026-09-01',
-             '--date-to', '2026-09-15', '--output', 'charts', '--report-format', 'txt', '--force'])
+             '--date-to', '2026-09-15', '--output', 'charts', '--report-format', 'txt', '--force', '--html'])
         request = method.call_args.args[0]
         self.assertEqual(code, 0)
         self.assertFalse(err)
@@ -116,6 +116,7 @@ class PipelineHandlerTests(unittest.TestCase):
         self.assertEqual(request.filters.date_to, date(2026, 9, 15))
         self.assertIs(request.report_format, ReportFormat.TXT)
         self.assertTrue(request.force)
+        self.assertTrue(request.generate_html)
         for artifact in artifacts:
             self.assertIn(str(artifact.path), out)
             self.assertFalse(artifact.path.exists())  # Presentation performs no file I/O.

@@ -208,6 +208,7 @@ def build_dashboard_request(args: argparse.Namespace) -> DashboardRequest:
             threshold_pp=getattr(args, "alert_threshold", 20.0),
             min_reviews=getattr(args, "alert_min_reviews", 5),
         ),
+        generate_html=getattr(args, "generate_html", False),
     )
 
 

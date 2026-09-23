@@ -597,12 +597,15 @@ class DashboardRequest:
     report_format: ReportFormat
     force: bool = False
     alert_options: Optional[SentimentAlertOptions] = field(default_factory=SentimentAlertOptions)
+    generate_html: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.output, Path) or not self.output.is_absolute():
             raise ValidationError("dashboard output must be an absolute Path")
         if not isinstance(self.report_format, ReportFormat):
             raise ValidationError("report_format must be a ReportFormat value")
+        if not isinstance(self.generate_html, bool):
+            raise ValidationError("generate_html must be a boolean")
         if self.alert_options is not None:
             if not isinstance(self.alert_options, SentimentAlertOptions):
                 raise ValidationError("alert_options must be SentimentAlertOptions or None")

@@ -246,6 +246,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="종합 리포트 파일 형식",
     )
     dashboard_parser.add_argument(
+        "--html", action="store_true", dest="generate_html",
+        help="차트·통계·감정 변화 알림을 포함한 단일 HTML 파일 추가 생성",
+    )
+    dashboard_parser.add_argument(
         "--force",
         action="store_true",
         help="같은 이름의 기존 출력 파일 덮어쓰기",
