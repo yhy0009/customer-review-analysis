@@ -95,13 +95,18 @@ def source_hash(details):
 
 
 def make_insight_artifact(details, insight, limit, *, profile=None):
-    if type(limit) is not int or not 1 <= limit <= 2000 or len(details) != insight.review_count:
+    if ((limit is not None and (type(limit) is not int or limit < 1))
+            or len(details) != insight.review_count
+            or (limit is not None and len(details) > limit)):
         raise ValidationError("인사이트 선택 범위가 올바르지 않습니다.")
     artifact = {"schema_version": 1, "source_sha256": source_hash(details),
             "selection_limit": limit, "review_ids": [d.review.id for d in details],
             "insight": json_value(asdict(insight))}
     if profile is not None:
         artifact.update(schema_version=2, generation_profile=validate_profile(profile))
+    if limit is None or limit > 2000:
+        # CLI supports an unbounded selection; v1/v2 retain their web limits.
+        artifact.update(schema_version=3, generation_profile=validate_profile(profile))
     return artifact
 
 
@@ -120,19 +125,22 @@ def load_insight_artifact(path):
         if not isinstance(artifact, dict):
             raise ValueError
         version = artifact.get("schema_version")
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             raise ValueError
         fields = {"schema_version", "source_sha256", "selection_limit", "review_ids", "insight"}
-        if set(artifact) != (fields | {"generation_profile"} if version == 2 else fields):
+        if set(artifact) != (fields | {"generation_profile"} if version >= 2 else fields):
             raise ValueError
-        if version == 2:
+        if version >= 2:
             artifact["generation_profile"] = validate_profile(artifact["generation_profile"])
-        if type(artifact["selection_limit"]) is not int or not 1 <= artifact["selection_limit"] <= 2000:
+        limit = artifact["selection_limit"]
+        if not (version == 3 and limit is None) and (
+            type(limit) is not int or limit < 1 or (version < 3 and limit > 2000)
+        ):
             raise ValueError
         ids = artifact["review_ids"]
         if not isinstance(ids, list) or any(type(i) is not int or i < 1 for i in ids):
             raise ValueError
-        if ids != sorted(set(ids)) or len(ids) > artifact["selection_limit"]:
+        if ids != sorted(set(ids)) or (limit is not None and len(ids) > limit):
             raise ValueError
         digest = artifact["source_sha256"]
         if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
@@ -159,7 +167,8 @@ def load_insight_artifact(path):
 
 def public_review(detail):
     review, analysis = detail.review, detail.analysis
-    return {"id": review.id, "product_name": review.product_name, "review_date": review.review_date.isoformat(),
+    return {"id": review.id, "product_name": review.product_name,
+            "review_date": review.review_date.isoformat() if review.review_date is not None else None,
             "rating": review.rating, "review_text": review.review_text,
             "analysis": None if analysis is None else {
                 "sentiment": analysis.sentiment.value, "confidence": analysis.confidence,

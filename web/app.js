@@ -106,7 +106,7 @@ function renderInsights(data) {
     const details = el("details", "evidence-group");
     const trigger = el("summary");
     const description = el("div", "evidence-description");
-    description.append(el("span", "evidence-product", group.product_name), el("strong", "", group.label));
+    description.append(el("span", "evidence-product", group.product_name ?? "제품명 없음"), el("strong", "", group.label));
     trigger.append(el("span", "evidence-index", String(index + 1).padStart(2, "0")), description,
       el("span", `finding-kind ${group.kind}`, group.kind === "complaints" ? "불편" : "장점"),
       el("span", "evidence-count", `${new Set(group.citations.map(c => c.review_id)).size}건`), el("span", "chevron", "+"));
@@ -129,9 +129,9 @@ function renderReviews(data) {
   for (const review of page.items) {
     const tr = el("tr");
     const product = el("td", "product-cell");
-    product.append(el("strong", "", review.product_name), el("small", "", review.review_date));
+    product.append(el("strong", "", review.product_name ?? "제품명 없음"), el("small", "", review.review_date ?? "날짜 없음"));
     const text = el("td", "review-text-cell"); text.append(el("p", "review-excerpt", review.review_text));
-    const rating = el("td", "rating-cell", `★ ${review.rating}`);
+    const rating = el("td", "rating-cell", review.rating == null ? "N/A" : `★ ${review.rating}`);
     const sentiment = el("td"); sentiment.append(badge(review.analysis?.sentiment));
     const action = el("td"); const button = el("button", "text-button", "상세 ↗");
     button.type = "button"; button.dataset.review = review.id; button.setAttribute("aria-label", `리뷰 ${review.id} 상세 보기`);
@@ -287,7 +287,8 @@ async function openReview(id) {
     if (request !== state.reviewRequest || state.snapshot !== snapshot || !dialog.open) return;
     $("#review-title").textContent = `리뷰 #${review.id}`;
     const content = $("#review-detail"); content.replaceChildren();
-    content.append(el("h3", "", review.product_name), el("p", "muted", `${review.review_date} · 별점 ${review.rating}/5`),
+    content.append(el("h3", "", review.product_name ?? "제품명 없음"),
+      el("p", "muted", `${review.review_date ?? "날짜 없음"} · 별점 ${review.rating == null ? "N/A" : `${review.rating}/5`}`),
       badge(review.analysis?.sentiment), el("h3", "detail-label", "리뷰 원문"), el("p", "original-review", review.review_text));
     if (review.analysis) {
       content.append(el("h3", "detail-label", "저장된 분석"), el("p", "", review.analysis.summary || "저장된 개별 요약이 없습니다."),

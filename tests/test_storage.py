@@ -27,7 +27,7 @@ class SQLiteLifecycleTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )}
             self.assertTrue({"raw_reviews", "clean_reviews", "analysis_results"} <= tables)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
             connection.execute(
                 "INSERT INTO raw_reviews (dedupe_key, product_name, review_date, rating, "
                 "review_text, raw_payload, created_at, updated_at) "

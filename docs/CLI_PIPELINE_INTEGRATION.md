@@ -8,13 +8,15 @@ CLI 등록 경계를 제공한다. `ImportService`는 수집기와 원본 저장
 `DashboardService`는 필터 통계를 한 번 조회하고 차트·리포트 생성 모듈을 조율한다.
 기존 `ApplicationServices`, Request, Result 계약은 유지한다.
 
-**기본 CLI는 import/clean/analyze/extract/list/show/stats/dashboard/export 9개를 실행한다.**
+**기본 CLI는 import/clean/analyze/extract/list/show/stats/dashboard/export/compare 10개를 실행한다.**
 `import`는 기본 생성 함수로 `collector.load_reviews`와 `ImportService`를 구성한다.
 사용법과 중복 정책은 [원본 리뷰 적재 안내](IMPORT.md)를 따른다.
 `clean`은 `cleaner.clean_reviews`와 `CleanService`를 기본 연결한다([리뷰 정제 안내](CLEAN.md)).
 `dashboard`는 `DashboardVisualizer`, `FileReportGenerator`, `DashboardService`를 기본 연결한다.
 저장된 통계로 PNG·리포트를 생성하며 API 키가 필요 없다([대시보드 CLI 안내](DASHBOARD.md)).
 `--html`이면 차트·통계·필터·감정 변화 알림을 내장한 단일 HTML을 추가한다.
+기본 `extract`는 성공 결과를 별도 JSON으로 저장한다. `dashboard`는 현재 DB·조건·생성 설정과
+일치하는 결과를 검증해 TXT/MD/HTML에 포함하며, AI를 추가 호출하지 않는다.
 
 ## 서비스 등록
 
@@ -53,7 +55,7 @@ def run_import_cli(argv, make_service):
 `import_factory`·`clean_factory`·`dashboard_factory`를 생략하면 해당 기본 서비스가 등록되고,
 전달하면 해당 명령의 기본 서비스를 교체한다.
 어느 생성 함수든 명시적으로 `None`을 전달하면 해당 파이프라인 명령을 등록하지 않는다.
-기존 analyze/extract/list/show/stats/export 6개 명령은 매핑에 유지된다.
+기존 analyze/extract/list/show/stats/export/compare 7개 명령은 매핑에 유지된다.
 구체 서비스와 선택적 패키지의 import는 생성 함수 내부에서 수행해, 도움말이나 다른
 명령을 구성하는 것만으로 pandas·matplotlib·AI SDK가 필요해지지 않도록 한다.
 
@@ -74,6 +76,7 @@ DB 장애는 중단·전파한다. 앞서 저장된 성공·제외 결과는 유
 - ImportRequest에는 프로젝트 루트 기준 절대 입력 경로와 중복 정책이 들어 있다.
 - CleanRequest.options에는 CLI/설정에서 결정된 중복 정책과 최소 길이가 들어 있다.
 - DashboardRequest에는 필터, 절대 출력 경로, 리포트 형식, force, 알림 설정과 generate_html이 들어 있다.
+  `insight_file`은 인사이트 파일 직접 지정, `use_insights=False`는 포함 생략을 뜻한다.
   시각화 모듈 구성에는 생성 함수가 `config["visualization"]`의 필요한 값을 전달한다.
 - 요청 검증 실패 시 DB나 서비스 생성 함수를 호출하지 않는다.
 - 서비스 생성 또는 실행 중 ImportError가 발생하면 의존성 확인 안내와 코드 2를 반환한다.
@@ -100,6 +103,8 @@ API 키나 원문 전체를 넣지 않아야 한다. 터미널 제어 문자는 
 대시보드는 `DashboardResult.artifacts`에 실제로 반환된 파일의 종류·포맷·절대 경로를
 표시한다. 목록이 비었으면 `생성된 파일이 없습니다.`를 표시한다. 출력 어댑터는 파일을
 생성하거나 경로를 추측하지 않는다. 진단 로그와 명령 오류 안내는 stderr로 출력한다.
+`DashboardResult.insight`가 있으면 같은 인사이트를 콘솔에도 표시하고, 없으면
+`insight_status`에 따른 미포함 사유를 안내한다.
 
 | 종료 코드 | 의미 |
 |---:|---|

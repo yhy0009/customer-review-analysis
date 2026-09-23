@@ -5,7 +5,10 @@ from datetime import date, datetime, timezone
 
 from src.errors import OutputError, ValidationError
 from src.html_dashboard import render_dashboard_html
-from src.models import KeywordCount, ReviewFilter, ReviewStatistics, Sentiment, SentimentAlertOptions
+from src.models import (
+    InsightCitation, InsightEvidenceGroup, InsightResult, KeywordCount,
+    ReviewFilter, ReviewStatistics, Sentiment, SentimentAlertOptions,
+)
 from src.sentiment_alerts import detect_sentiment_change
 from tests.html_fixtures import DashboardHTML, PNG
 
@@ -72,6 +75,21 @@ class HtmlDashboardTests(unittest.TestCase):
                       '집계된 키워드가 없습니다', '날짜별 집계가 없습니다'):
             self.assertIn(value, text)
         self.assertNotIn('nan', text)
+
+    def test_saved_insight_scope_summary_and_citations_are_visible_and_escaped(self):
+        malicious = '<script>alert(1)</script><img src="https://invalid.test/x">'
+        insight = InsightResult(ReviewFilter(sentiment=Sentiment.NEGATIVE), 1, self.now,
+            summary=malicious, issues=[malicious], improvement_suggestions=['개선 제안'],
+            evidence_groups=[InsightEvidenceGroup(None, 'complaints', '주제',
+                [InsightCitation(7, '주제', malicious)])])
+        document = DashboardHTML(self.render(insight=insight))
+        text = ' '.join(document.text)
+        for value in (malicious, '제품명 없음', '리뷰 7', '분석 완료 리뷰 1건', '부정', '개선 제안',
+                      '2026-09-22T01:02:03Z', '대상 범위는 서로 다를 수 있습니다'):
+            self.assertIn(value, text)
+        self.assertEqual(len(document.images), 1)
+        self.assertNotIn('script', [tag for tag, _ in document.elements])
+        self.assertTrue(any(attrs.get('href') == '#insight' for _, attrs in document.elements))
 
     def test_sentiment_warning_is_included_with_its_periods_and_counts(self):
         result = detect_sentiment_change(self.stats, self.filters, SentimentAlertOptions(), today=self.now.date())

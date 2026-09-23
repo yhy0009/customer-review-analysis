@@ -18,8 +18,24 @@ python main.py list
 `cleaning.min_review_length`를 사용한다(기본 `skip`, 3).
 설정·DB 상대 경로는 공통 규칙에 따라 프로젝트 루트 기준이다.
 
-기존 정제기는 상품명·본문의 공백을 정규화하고 필수값, 날짜, 1~5점의 정수 평점,
-본문 최소 길이를 검증한다. 원본 값은 그대로 보존하고 원본의 내부 ID를 Clean에서도 사용한다.
+본문은 필수이며 공백 정규화와 최소 길이 검증을 적용한다. 제품명·작성일·별점은 선택 항목이다.
+열이 없거나 셀이 비어 있으면 `None`/SQL `NULL`로 보존한다. 값이 있는 날짜는 유효한 날짜여야
+하고 별점은 1~5의 정수여야 한다. 누락값을 임의 제품명·실행일·0점으로 채우지 않는다.
+원본 값은 그대로 보존하고 원본의 내부 ID를 Clean에서도 사용한다.
+
+```csv
+review_text
+본문만 있는 리뷰도 저장하고 분석할 수 있습니다
+```
+
+예전에 선택 항목 누락으로 REJECTED가 된 원본도 `clean`으로 재시도할 수 있다.
+CLI에는 `제품명 없음`·`날짜 없음`·`N/A`, CSV/Excel에는 빈 셀, JSONL에는 `null`로 표시한다.
+평균 별점은 별점이 있는 정제 리뷰만, 날짜·별점 차트는 해당 값이 있는 분석 리뷰만 사용한다.
+감정 비율과 전체 건수에는 선택 항목이 없는 리뷰도 포함된다. 필터를 지정하면 그 값이 없는
+리뷰는 해당 조건에 포함되지 않고, 날짜·별점 정렬 시 누락값은 항상 마지막이다.
+
+기존 v1 DB는 쓰기 연결 시 v2로 원자적으로 이전하며 리뷰 ID·상태·분석 결과를 보존한다.
+읽기 전용 연결은 v1도 변경 없이 조회할 수 있다([SQLite 저장소 안내](SQLITE_STORAGE.md)).
 
 ## 재실행과 중복 정책
 
@@ -49,7 +65,7 @@ python main.py clean --policy skip --min-length 2
 
 ```text
 processed=3 succeeded=1 skipped=0 failed=0 rejected=2
-  [INVALID_REVIEW_DATE] item=1: review_date is missing or invalid
+  [INVALID_REVIEW_DATE] item=1: review_date is invalid
   [INVALID_RATING] item=3: rating must be an integer between 1 and 5
 ```
 

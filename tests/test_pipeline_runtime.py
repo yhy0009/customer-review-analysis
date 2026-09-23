@@ -153,7 +153,10 @@ class PipelineRuntimeTests(unittest.TestCase):
             code, out, err = self.run_cli(['dashboard', '--report-format', 'txt', '--force'], handlers)
             self.assertEqual(code, 0, err)
             self.assertEqual(service.call_args.args[1:], (visualizer.return_value, reporter.return_value))
-            self.assertEqual(service.call_args.kwargs, {'font_family': 'TestFont', 'dpi': 200})
+            self.assertEqual(service.call_args.kwargs['font_family'], 'TestFont')
+            self.assertEqual(service.call_args.kwargs['dpi'], 200)
+            self.assertTrue(callable(service.call_args.kwargs['snapshot']))
+            self.assertTrue(callable(service.call_args.kwargs['load_insight']))
             request = service.return_value.create_dashboard.call_args.args[0]
             self.assertEqual(request.output, self.root / 'output')
             self.assertEqual(request.report_format.value, 'txt')

@@ -129,6 +129,102 @@ class AiCliTests(unittest.TestCase):
         return response(dict(INSIGHT_PAYLOAD,
                              improvement_suggestions=body["suggestion_candidates"][:1]))
 
+    def test_extract_is_persisted_and_reused_by_markdown_text_and_html_without_api(self):
+        from src.web_dashboard import load_insight_artifact
+
+        self.seed()
+        before = self.read_details()
+        self.client.chat.completions.create.side_effect = self.insight_response
+        result = self.run_cli("extract", "--sentiment", "negative", "--limit", "2")
+        self.assertEqual(result.code, 0, result.stderr)
+        path = Path(next(line.split(": ", 1)[1] for line in result.stdout.splitlines()
+                         if line.startswith("인사이트 파일: ")))
+        self.assertTrue(path.is_file())
+        artifact = load_insight_artifact(path)
+        self.assertEqual(artifact["review_ids"], [3, 4])
+        self.assertEqual(artifact["generation_profile"]["model"], "test-request-model")
+        self.assertNotIn("test-private-api-key", path.read_text())
+        self.assertEqual(self.read_details(), before)
+        self.config["ai"]["api_key"] = None
+        self.client.chat.completions.create.reset_mock()
+        for fmt in ("md", "txt"):
+            directory = self.root / f"reports-{fmt}"
+            result = self.run_cli("dashboard", "--output", str(directory), "--report-format", fmt, "--html")
+            self.assertEqual(result.code, 0, result.stderr)
+            self.assertIn("리포트에 저장된 AI 인사이트를 포함했습니다", result.stdout)
+            self.assertIn("실제 추출 대상: 분석 완료 리뷰 2건", result.stdout)
+            result.sdk.assert_not_called()
+            self.client.chat.completions.create.assert_not_called()
+            for suffix in (fmt, "html"):
+                content = next(directory.glob(f"*.{suffix}")).read_text()
+                self.assertIn("일부 리뷰에서 배송 불편이 보고됩니다", content)
+                self.assertIn("배송 지연", content)
+                self.assertIn("증상을 재현해 점검", content)
+                self.assertIn("리뷰 3", content)
+                self.assertIn("대상 범위는 서로 다를 수 있습니다", content)
+        self.assertEqual(self.read_details(), before)
+
+    def test_optional_body_only_csv_runs_through_extract_and_report(self):
+        path = self.root / "body-only.csv"
+        path.write_text("review_text\n배송이 늦어서 아쉬웠습니다.\n", encoding="utf-8-sig")
+        for arguments in (("import", "--file", str(path)), ("clean",), ("analyze", "--unanalyzed")):
+            result = self.run_cli(*arguments)
+            self.assertEqual(result.code, 0, result.stderr)
+        self.client.chat.completions.create.side_effect = self.insight_response
+        result = self.run_cli("extract")
+        self.assertEqual(result.code, 0, result.stderr)
+        self.assertIn("제품명 없음", result.stdout)
+        saved = next((self.root / "output/insights").glob("*/*.json"))
+        self.assertIsNone(json.loads(saved.read_bytes())["selection_limit"])
+        output = self.root / "body-reports"
+        result = self.run_cli("dashboard", "--output", str(output), "--html", "--insight-file", str(saved))
+        self.assertEqual(result.code, 0, result.stderr)
+        result.sdk.assert_not_called()
+        report = next(output.glob("*.md")).read_text()
+        self.assertIn("제품명 없음", report)
+        self.assertIn("N/A", report)
+        self.assertIn("배송이 늦어서 아쉬웠습니다", report)
+
+    def test_invalid_explicit_insight_stops_before_generating_files_and_no_insights_skips_cache(self):
+        self.seed()
+        self.client.chat.completions.create.side_effect = self.insight_response
+        self.assertEqual(self.run_cli("extract").code, 0)
+        path = next((self.root / "output/insights").glob("*/*.json"))
+        output = self.root / "explicit-invalid"
+        path.write_text("broken JSON")
+        result = self.run_cli("dashboard", "--output", str(output), "--insight-file", str(path))
+        self.assertEqual(result.code, 2, result.stderr)
+        self.assertFalse(output.exists())
+        result.sdk.assert_not_called()
+        result = self.run_cli("dashboard", "--output", str(output), "--no-insights")
+        self.assertEqual(result.code, 0, result.stderr)
+        self.assertIn("--no-insights로 생략", result.stdout)
+        self.assertNotIn("일부 리뷰에서 배송 불편", next(output.glob("*.md")).read_text())
+
+    def test_unwritable_extract_output_fails_before_ai_and_failed_replacement_keeps_old_json(self):
+        self.seed()
+        blocked = self.root / "blocked-output"
+        blocked.write_text("existing file")
+        self.config["paths"] = {"output_dir": str(blocked)}
+        result = self.run_cli("extract")
+        self.assertEqual(result.code, 3, result.stderr)
+        result.sdk.assert_not_called()
+        self.config["paths"]["output_dir"] = str(self.root / "output")
+        self.client.chat.completions.create.side_effect = self.insight_response
+        self.assertEqual(self.run_cli("extract").code, 0)
+        path = next((self.root / "output/insights").glob("*/*.json"))
+        before = path.read_bytes()
+        with patch("src.cli_insights.os.replace", side_effect=OSError("disk failure")):
+            result = self.run_cli("extract")
+        self.assertEqual(result.code, 3, result.stderr)
+        self.assertNotIn("인사이트 파일:", result.stdout)
+        self.assertEqual(path.read_bytes(), before)
+        self.client.chat.completions.create.side_effect = None
+        self.client.chat.completions.create.return_value = response("invalid AI JSON")
+        result = self.run_cli("extract")
+        self.assertEqual(result.code, 4, result.stderr)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_multilingual_csv_import_clean_analyze_and_export_preserve_original_text(self):
         reviews = [
             ('한국어 제품', '연결이 안정적이고 음질도 좋아서 만족합니다.', 'positive'),

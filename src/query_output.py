@@ -63,8 +63,9 @@ def format_review_list(page: Page[ReviewDetail]) -> str:
         review = detail.review
         lines.extend([
             "",
-            f"ID {review.id} | {review.review_date.isoformat()}"
-            f" | 별점 {review.rating}/5 | {_single_line(review.product_name, 40)}",
+            f"ID {review.id} | {review.review_date.isoformat() if review.review_date else '날짜 없음'}"
+            f" | 별점 {str(review.rating) + '/5' if review.rating is not None else 'N/A'}"
+            f" | {_single_line(review.product_name or '제품명 없음', 40)}",
         ])
         if detail.analysis is None:
             lines.append("  분석 결과 없음")
@@ -84,9 +85,9 @@ def format_review_detail(detail: ReviewDetail) -> str:
     lines = [
         f"리뷰 ID: {review.id}",
         f"원본 리뷰 ID: {_single_line(review.source_review_id) if review.source_review_id else '없음'}",
-        f"제품명: {_single_line(review.product_name)}",
-        f"작성일: {review.review_date.isoformat()}",
-        f"별점: {review.rating}/5",
+        f"제품명: {_single_line(review.product_name or '제품명 없음')}",
+        f"작성일: {review.review_date.isoformat() if review.review_date else '날짜 없음'}",
+        f"별점: {str(review.rating) + '/5' if review.rating is not None else 'N/A'}",
         f"정제 시각 (UTC): {_utc_text(review.cleaned_at)}",
         "",
         "리뷰 본문 (정제):",
@@ -182,7 +183,7 @@ def format_insight_result(result: InsightResult) -> str:
         lines.append("전체 인사이트 근거:")
         for number, group in enumerate(result.evidence_groups, 1):
             kind = "불편" if group.kind == "complaints" else "장점"
-            lines.append(f"  근거 주제 {number}: {_single_line(group.product_name)} / {kind} / "
+            lines.append(f"  근거 주제 {number}: {_single_line(group.product_name or '제품명 없음')} / {kind} / "
                          f"{_single_line(group.label)} ({group.review_count}건)")
             for citation in group.citations:
                 lines.append(f"    리뷰 {citation.review_id}: {_single_line(citation.label)} — {_single_line(citation.quote)}")
@@ -247,4 +248,17 @@ def format_dashboard_result(result: DashboardResult) -> str:
         from src.sentiment_alerts import format_sentiment_change
 
         lines.extend(["", format_sentiment_change(result.sentiment_change)])
+    if result.insight is not None:
+        lines.extend(["", "리포트에 저장된 AI 인사이트를 포함했습니다.", format_insight_result(result.insight)])
+    else:
+        reason = {
+            "missing": "저장된 결과가 없습니다.", "disabled": "--no-insights로 생략했습니다.",
+            "stale": "추출 이후 리뷰 또는 분석 결과가 변경됐습니다.",
+            "config_mismatch": "AI 생성 설정이 변경됐습니다.",
+            "scope_mismatch": "대시보드 조건과 일치하는 결과가 없습니다.",
+            "invalid": "저장 파일 형식이나 원문 근거를 확인할 수 없습니다.",
+        }.get(result.insight_status, "사용할 수 있는 결과가 없습니다.")
+        lines.extend(["", "AI 인사이트 미포함: " + reason])
+        if result.insight_status != "disabled":
+            lines.append("같은 제품·기간 조건으로 extract를 실행한 뒤 dashboard를 다시 생성하세요.")
     return "\n".join(lines)

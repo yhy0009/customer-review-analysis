@@ -125,9 +125,9 @@ ProcessingStatus: RAW | REJECTED | CLEANED | ANALYZED | ANALYSIS_FAILED
 |---|---|---:|---|
 | `id` | `int` | 예 | 저장소 내부 고유 ID |
 | `source_review_id` | `str \| None` | 아니요 | 원본 리뷰 ID |
-| `product_name` | `str` | 예 | 앞뒤 공백 제거 후 빈 문자열 금지 |
-| `review_date` | `date` | 예 | 리뷰 작성일 |
-| `rating` | `int` | 예 | `1 <= rating <= 5` |
+| `product_name` | `str \| None` | 아니요 | 값이 있으면 앞뒤 공백 제거 후 빈 문자열 금지 |
+| `review_date` | `date \| None` | 아니요 | 값이 있으면 유효한 리뷰 작성일 |
+| `rating` | `int \| None` | 아니요 | 값이 있으면 `1 <= rating <= 5` |
 | `review_text` | `str` | 예 | 정규화 완료, 설정된 최소 길이 이상 |
 | `cleaned_at` | `datetime` | 예 | UTC 기준 정제 시각 |
 
@@ -283,7 +283,7 @@ SQLite를 열고 서비스 실행 뒤 연결을 닫는다. `ExportService`도 �
 | `list` | `sentiment`, `date_from`, `date_to`, `rating`, `product`, `page`, `size`, `sort`, `order` |
 | `show` | `review_id` |
 | `stats` | `sentiment`, `date_from`, `date_to`, `product` |
-| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force`, `alert_days`, `alert_threshold`, `alert_min_reviews`, `no_alerts`, `generate_html` (`--html`) |
+| `dashboard` | `date_from`, `date_to`, `product`, `output`, `report_format`, `force`, `alert_days`, `alert_threshold`, `alert_min_reviews`, `no_alerts`, `generate_html` (`--html`), `insight_file`, `no_insights` |
 | `export` | `format`, `output`, `sentiment`, `date_from`, `date_to`, `rating_min`, `product`, `force` |
 
 각 핸들러는 `argparse.Namespace`를 명령별 Request dataclass로 변환한 뒤 서비스
@@ -462,7 +462,7 @@ DuplicatePolicy = Literal["skip", "upsert"]
 - AI 입력에 영향을 주는 Clean 필드가 변경되면 기존 Analysis Result를 삭제하고
   상태를 `CLEANED`로 되돌린다.
 - 정제 제외 저장은 Raw를 보존하고 상태를 `REJECTED`로 바꾸며 기존 Clean·Analysis를
-  같은 트랜잭션에서 삭제한다. 기존 스키마 v1을 유지하며 제외 사유는 서비스 결과에 포함한다.
+  같은 트랜잭션에서 삭제한다. 제외 사유는 서비스 결과에 포함한다.
 - 데이터 한 건의 유효성·중복 문제는 행 단위 savepoint로 격리하고 성공 건은 커밋한다.
 - 연결 실패나 스키마 오류 같은 저장소 인프라 문제는 배치 전체를 롤백하고
   `StorageError`를 발생시킨다.
@@ -701,7 +701,7 @@ analyze/extract는 기존 AI 서비스에 연결돼 있다.
 
 ### 17.1 통합 시 ID·트랜잭션 규칙
 
-- PR #5의 스키마 v1과 Raw JSON 직렬화 형식을 유지한다. `CleanReview.id`는
+- PR #5의 Raw JSON 직렬화 형식을 유지하며 v1은 선택 필드 NULL을 허용하는 v2로 이전한다. `CleanReview.id`는
   반드시 저장소에서 조회한 `RawReview.id`이며, Clean 저장 시 재발급하지 않는다.
   원본이 없는 ID는 행 단위 실패다. 중복 판단은 해당 원본 ID를 기준으로 한다.
 - Raw와 Clean 배치는 모두 바깥 `BEGIN IMMEDIATE`와 행별 savepoint를 사용한다.
@@ -853,8 +853,11 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
   재시도·저장 동작과 `processed/succeeded/skipped/failed` 출력을 사용한다.
 - `extract`: `InsightService`와 `AIInsightExtractor`를 조합하며
   `snapshot=repository.read_snapshot`을 주입한다. AI 호출 전에 읽기 트랜잭션을 종료한다.
+  `save_result=CLIInsightStore.save`를 주입해 성공 결과를 별도 JSON으로 저장한다.
+  원문·분석 해시는 AI 호출 전 스냅샷을 기준으로 만들며, 기존 결과는 완성본으로만 교체한다.
 - `build_extract_handler()`가 `format_insight_result()`의 한국어 문자열을 출력한다.
   실제 대상 수·필터·UTC 생성 시각·키워드별 리뷰 수·요약·이슈·개선안을 표시한다.
+  기본 CLI는 저장이 완료된 인사이트 파일의 절대 경로도 출력한다.
   대상 0건에서는 기존 선택 필드에 내용이 남아 있어도 AI 요약으로 표시하지 않는다.
 - AI 명령을 실행할 때만 SDK를 import한다. SDK 누락은 설정 오류(2)이며 조회·CSV/JSONL
   내보내기와 도움말은 AI SDK가 없어도 동작한다. 명시적 핸들러·빈 매핑 주입도 유지한다.
@@ -889,7 +892,10 @@ CLI의 공통 오류 처리(종료 코드 3)에 연결된다. 두 모듈은 공�
 원본 목록과 요청의 중복 정책을 `save_raw_reviews()`에 전달하고 배치 결과를 그대로 반환한다.
 날짜·평점·본문 유효성 검사는 정제 단계에 맡긴다.
 `DashboardService`는 `get_statistics(filters)`를 한 번 호출하고 같은 결과를 차트와 리포트에 전달한다.
-AI 호출이나 인사이트 캐시 조회 없이 `insight=None`으로 결과를 반환한다.
+기본 CLI는 같은 읽기 스냅샷에서 저장된 추출 결과를 현재 리뷰와 검증한다. 유효하면
+`DashboardResult.insight`와 TXT/MD/HTML에 포함하며 AI를 추가 호출하지 않는다.
+`insight_file`로 직접 파일을 지정하고 `use_insights=False`로 생략할 수 있다.
+`insight_status`는 available/missing/stale/config_mismatch/scope_mismatch/invalid/disabled를 반환한다.
 `DashboardRequest.alert_options`는 기본 `SentimentAlertOptions(days=7, threshold_pp=20, min_reviews=5)`이며,
 `None`이면 감정 변화 판정을 생략한다. CLI는 `--alert-days`, `--alert-threshold`,
 `--alert-min-reviews`, `--no-alerts`로 이를 지정한다.
@@ -901,7 +907,7 @@ AI 호출이나 인사이트 캐시 조회 없이 `insight=None`으로 결과를
 `DashboardRequest.generate_html: bool = False`는 선택적 단일 HTML 생성을 제어한다.
 `--html`이면 차트·통계·필터·생성 시각·알림을 내장한 HTML을 추가하며,
 `OutputArtifact(kind=REPORT, format="html")`로 반환한다. `ReportFormat`은 기존 txt/md를 유지한다.
-HTML 렌더러는 공유 통계와 PNG 바이트만 소비하고 파일·저장소·API I/O를 수행하지 않는다.
+HTML 렌더러는 공유 통계·선택적 인사이트와 PNG 바이트를 소비하고 파일·저장소·API I/O를 수행하지 않는다.
 `visualization.font_family`·`dpi`는 런타임이 주입한다. PNG·리포트·HTML은 동일한 UTC 파일명 시각을
 사용하며, 모두 임시 디렉터리에서 생성한 후 파일별로 게시한다. 출력 실패와 덮어쓰기의 범위는
 [대시보드 CLI 안내](DASHBOARD.md)를 따른다.
@@ -1003,7 +1009,7 @@ AI·리포트 확장으로 기존 `InsightResult` 생성자의 필수 인자는 
   카테고리 메타데이터를 단일 SQL 조회로 읽고 `ComparisonGroup(name, product_count, statistics)`를 반환한다.
 - `group_by`는 `product|category`다. NFKC·공백 정리 후 그룹명을 정확히 비교하고, 카테고리 누락은
   `name=None`으로 구분한다. Raw payload의 기존 선택 열을 사용하므로 DB 버전과 Raw/Clean DTO는 유지한다.
-- 통계 분모는 기존 저장소 집계와 같다. 평균 별점은 모든 정제 리뷰, 감정 비율은 분석 완료 리뷰 기준이다.
+- 통계 분모는 기존 저장소 집계와 같다. 평균 별점은 별점이 있는 정제 리뷰, 감정 비율은 분석 완료 리뷰 기준이다.
   분석 0건은 외부 출력에서 `N/A|null|빈 셀`로 구분한다. 제품 평균을 다시 평균내지 않는다.
 - 결과 선택·정렬은 서비스, CSV·JSON 및 PNG 게시와 CLI 안내는 비교 출력 모듈이 담당한다.
   차트는 20그룹씩 나누어 모든 선택 그룹을 포함하고 설정의 폰트·DPI를 사용한다.

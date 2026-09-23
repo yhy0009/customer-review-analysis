@@ -209,6 +209,8 @@ def build_dashboard_request(args: argparse.Namespace) -> DashboardRequest:
             min_reviews=getattr(args, "alert_min_reviews", 5),
         ),
         generate_html=getattr(args, "generate_html", False),
+        insight_file=_project_path(args.insight_file) if getattr(args, "insight_file", None) else None,
+        use_insights=not getattr(args, "no_insights", False),
     )
 
 
@@ -337,10 +339,13 @@ def build_export_handler(
 
 def build_extract_handler(
     service_method: Callable[[ExtractRequest], InsightResult],
+    *, saved_path: Callable[[], Path | None] | None = None,
 ) -> CommandHandler:
     def execute(request: ExtractRequest) -> InsightResult:
         result = service_method(request)
         print(format_insight_result(result))
+        if saved_path is not None and (path := saved_path()) is not None:
+            print(f"인사이트 파일: {path}")
         return result
 
     return _adapt(execute, build_extract_request)
