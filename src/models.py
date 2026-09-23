@@ -120,23 +120,28 @@ class RawReview:
 @dataclass(slots=True)
 class CleanReview:
     id: int
-    product_name: str
-    review_date: date
-    rating: int
+    product_name: Optional[str]
+    review_date: Optional[date]
+    rating: Optional[int]
     review_text: str
     cleaned_at: datetime
     source_review_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         _require_positive_integer(self.id, "id")
-        if not isinstance(self.product_name, str) or not self.product_name.strip():
+        if self.product_name is not None and (
+            not isinstance(self.product_name, str) or not self.product_name.strip()
+        ):
             raise ValidationError("product_name must be a non-empty string")
-        if not isinstance(self.review_date, date) or isinstance(self.review_date, datetime):
+        if self.review_date is not None and (
+            not isinstance(self.review_date, date) or isinstance(self.review_date, datetime)
+        ):
             raise ValidationError("review_date must be a date")
-        if isinstance(self.rating, bool) or not isinstance(self.rating, int):
-            raise ValidationError("rating must be an integer")
-        if not 1 <= self.rating <= 5:
-            raise ValidationError("rating must be between 1 and 5")
+        if self.rating is not None:
+            if isinstance(self.rating, bool) or not isinstance(self.rating, int):
+                raise ValidationError("rating must be an integer")
+            if not 1 <= self.rating <= 5:
+                raise ValidationError("rating must be between 1 and 5")
         if not isinstance(self.review_text, str) or not self.review_text.strip():
             raise ValidationError("review_text must be a non-empty string")
         _require_utc(self.cleaned_at, "cleaned_at")
@@ -285,7 +290,7 @@ class InsightCitation:
 
 @dataclass(slots=True)
 class InsightEvidenceGroup:
-    product_name: str
+    product_name: Optional[str]
     kind: str
     label: str
     citations: List[InsightCitation]
@@ -295,7 +300,7 @@ class InsightEvidenceGroup:
             raise ValidationError("unsupported evidence kind")
         if not isinstance(self.label, str) or not self.label.strip():
             raise ValidationError("evidence label must be non-empty")
-        if not isinstance(self.product_name, str):
+        if self.product_name is not None and not isinstance(self.product_name, str):
             raise ValidationError("product_name must be a string")
         if not self.citations or any(not isinstance(c, InsightCitation) for c in self.citations):
             raise ValidationError("evidence citations are required")

@@ -159,7 +159,8 @@ def load_insight_artifact(path):
 
 def public_review(detail):
     review, analysis = detail.review, detail.analysis
-    return {"id": review.id, "product_name": review.product_name, "review_date": review.review_date.isoformat(),
+    return {"id": review.id, "product_name": review.product_name,
+            "review_date": review.review_date.isoformat() if review.review_date is not None else None,
             "rating": review.rating, "review_text": review.review_text,
             "analysis": None if analysis is None else {
                 "sentiment": analysis.sentiment.value, "confidence": analysis.confidence,

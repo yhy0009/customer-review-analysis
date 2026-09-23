@@ -47,7 +47,7 @@ def _flatten(detail: ReviewDetail) -> Dict[str, Any]:
         "id": review.id,
         "source_review_id": review.source_review_id,
         "product_name": review.product_name,
-        "review_date": review.review_date.isoformat(),
+        "review_date": review.review_date.isoformat() if review.review_date is not None else None,
         "rating": review.rating,
         "review_text": review.review_text,
         "cleaned_at": review.cleaned_at.isoformat().replace("+00:00", "Z"),

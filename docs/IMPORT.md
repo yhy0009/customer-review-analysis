@@ -63,6 +63,9 @@ processed=2 succeeded=2 skipped=0 failed=0 rejected=0
 대상에 포함되지 않으므로 새 DB에 import한 뒤 `stats`가 0건을 표시하는 것은 정상이다.
 적재 후 `python main.py clean`으로 정제할 수 있다. 옵션과 재실행 정책은 [리뷰 정제 안내](CLEAN.md)를 따른다.
 
+본문 열만 있는 CSV/Excel도 지원한다. 선택 항목인 제품명·작성일·별점이 없으면 정제 후에도
+NULL로 유지한다. 값이 있는 잘못된 날짜나 범위 밖 별점은 정제에서 제외된다.
+
 ## 검증
 
 ```bash

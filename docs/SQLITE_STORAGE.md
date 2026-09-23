@@ -35,7 +35,9 @@ with SQLiteReviewRepository(database_path="data/app_database.db") as repository:
   `fetch_unanalyzed_reviews()`는 재시도용으로 실패도 포함하지만,
   `get_statistics().unanalyzed_reviews`는 실패를 제외한다.
 - 별점×감정 행렬은 1~5점과 모든 감정의 0건 구간을 포함한다. 분석된 날짜의 집계도
-  0건 감정을 포함한다. 평균 별점은 원래 계산값을 반환하고 출력 단계에서 반올림한다.
+  0건 감정을 포함한다. 작성일·별점이 없는 리뷰는 해당 차트 집계에서만 제외한다.
+  평균 별점은 별점이 있는 정제 리뷰만 사용하고, 모두 누락이면 `None`이다.
+  원래 계산값을 반환하고 출력 단계에서 반올림한다.
   상위 키워드는 리뷰당 한 번 세며, 건수 내림차순·동률 시 키워드 오름차순으로 정렬한다.
 
 통합하면서 기존 별도 구현의 0건 통계 구간, 평균 정밀도, 키워드 동률 순서를 옮겼다.
@@ -44,7 +46,12 @@ Raw/Clean 독립 ID 발급, 작업 디렉터리 기준 경로, 버전 없는 스
 
 ## 기존 DB 처리
 
-import 통합은 DB 변환이 아니다. 기준 스키마는 `PRAGMA user_version = 1`이며,
+기준 스키마는 `PRAGMA user_version = 2`다. Clean의 제품명·작성일·별점은 SQL NULL을 허용한다.
+등록된 v1 DB는 첫 쓰기 연결에서 한 트랜잭션으로 v2로 이전한다. Raw·Clean ID, 분석 결과,
+상태·오류·생성/수정 시각과 Clean의 추가 인덱스·트리거를 보존한다. 참조 무결성 검증이나
+이전 작업이 실패하면 v1 스키마와 데이터를 롤백하며 다시 시도할 수 있다.
+`read_only=True`는 v1/v2 모두 조회하며 스키마나 파일을 수정하지 않는다.
+
 기존 `storage.py`가 만든 버전 0 DB에는 Clean의 별도 ID·`raw_id`·`dedupe_key`가 있다.
 Raw 필드 직렬화와 분석 메타데이터 컬럼도 v1과 다르다.
 버전 0 DB나 지원하지 않는 스키마는 `StorageError`로 거부하고 자동 수정하지 않는다.

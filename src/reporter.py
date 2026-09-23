@@ -174,6 +174,7 @@ class FileReportGenerator:
             for s, label in _LABELS.items()
         ])
         heading("날짜별 감정 분포")
+        lines.append("작성일이 있는 분석 완료 리뷰 기준입니다. 작성일이 없는 리뷰는 이 집계에서 제외합니다.")
         if stats.daily_sentiment_counts:
             table(["리뷰 작성일", *_LABELS.values()], [
                 [day.isoformat(), *(f"{counts.get(s, 0)}건" for s in _LABELS)]
@@ -182,6 +183,7 @@ class FileReportGenerator:
         else:
             lines.append("분석 완료 리뷰의 날짜별 집계가 없습니다.")
         heading("별점별 감정 분포")
+        lines.append("별점이 있는 분석 완료 리뷰 기준입니다. 평균 별점도 별점이 있는 정제 리뷰만 사용합니다.")
         table(["별점", *_LABELS.values()], [
             [str(rating), *(f"{stats.rating_sentiment_matrix.get(rating, {}).get(s, 0)}건" for s in _LABELS)]
             for rating in range(1, 6)
@@ -222,7 +224,7 @@ class FileReportGenerator:
                     for number, group in enumerate(insight.evidence_groups, 1):
                         kind = "불편" if group.kind == "complaints" else "장점"
                         lines.extend(["", f"- 근거 주제 {number}: " + _text(
-                            f"{group.product_name} / {kind} / {group.label} ({group.review_count}건)", markdown)])
+                            f"{group.product_name or '제품명 없음'} / {kind} / {group.label} ({group.review_count}건)", markdown)])
                         for citation in group.citations:
                             lines.append(f"  - 리뷰 {citation.review_id}: " + _text(
                                 f"{citation.label} — {citation.quote}", markdown))

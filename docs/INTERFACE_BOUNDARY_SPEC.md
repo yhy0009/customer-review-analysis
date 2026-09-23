@@ -125,9 +125,9 @@ ProcessingStatus: RAW | REJECTED | CLEANED | ANALYZED | ANALYSIS_FAILED
 |---|---|---:|---|
 | `id` | `int` | 예 | 저장소 내부 고유 ID |
 | `source_review_id` | `str \| None` | 아니요 | 원본 리뷰 ID |
-| `product_name` | `str` | 예 | 앞뒤 공백 제거 후 빈 문자열 금지 |
-| `review_date` | `date` | 예 | 리뷰 작성일 |
-| `rating` | `int` | 예 | `1 <= rating <= 5` |
+| `product_name` | `str \| None` | 아니요 | 값이 있으면 앞뒤 공백 제거 후 빈 문자열 금지 |
+| `review_date` | `date \| None` | 아니요 | 값이 있으면 유효한 리뷰 작성일 |
+| `rating` | `int \| None` | 아니요 | 값이 있으면 `1 <= rating <= 5` |
 | `review_text` | `str` | 예 | 정규화 완료, 설정된 최소 길이 이상 |
 | `cleaned_at` | `datetime` | 예 | UTC 기준 정제 시각 |
 
@@ -462,7 +462,7 @@ DuplicatePolicy = Literal["skip", "upsert"]
 - AI 입력에 영향을 주는 Clean 필드가 변경되면 기존 Analysis Result를 삭제하고
   상태를 `CLEANED`로 되돌린다.
 - 정제 제외 저장은 Raw를 보존하고 상태를 `REJECTED`로 바꾸며 기존 Clean·Analysis를
-  같은 트랜잭션에서 삭제한다. 기존 스키마 v1을 유지하며 제외 사유는 서비스 결과에 포함한다.
+  같은 트랜잭션에서 삭제한다. 제외 사유는 서비스 결과에 포함한다.
 - 데이터 한 건의 유효성·중복 문제는 행 단위 savepoint로 격리하고 성공 건은 커밋한다.
 - 연결 실패나 스키마 오류 같은 저장소 인프라 문제는 배치 전체를 롤백하고
   `StorageError`를 발생시킨다.
@@ -701,7 +701,7 @@ analyze/extract는 기존 AI 서비스에 연결돼 있다.
 
 ### 17.1 통합 시 ID·트랜잭션 규칙
 
-- PR #5의 스키마 v1과 Raw JSON 직렬화 형식을 유지한다. `CleanReview.id`는
+- PR #5의 Raw JSON 직렬화 형식을 유지하며 v1은 선택 필드 NULL을 허용하는 v2로 이전한다. `CleanReview.id`는
   반드시 저장소에서 조회한 `RawReview.id`이며, Clean 저장 시 재발급하지 않는다.
   원본이 없는 ID는 행 단위 실패다. 중복 판단은 해당 원본 ID를 기준으로 한다.
 - Raw와 Clean 배치는 모두 바깥 `BEGIN IMMEDIATE`와 행별 savepoint를 사용한다.

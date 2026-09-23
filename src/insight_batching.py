@@ -72,7 +72,8 @@ def group_evidence(evidence, selected):
                     groups[key] = InsightEvidenceGroup(*key, citations=[citation])
                 else:
                     groups[key].citations.append(citation)
-    return sorted(groups.values(), key=lambda g: (-g.review_count, g.product_name, g.kind, g.label))
+    return sorted(groups.values(), key=lambda g: (-g.review_count, g.product_name is None,
+                                                 g.product_name or "", g.kind, g.label))
 
 
 COMPACT_PROMPT = """검증된 리뷰 근거의 주요 주제만 한국어로 요약한다.

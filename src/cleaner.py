@@ -118,12 +118,6 @@ def _clean_one(
     # 1. product_name
     product_name = _normalize_text(raw_review.product_name)
 
-    if not product_name:
-        raise _RejectedReview(
-            "MISSING_PRODUCT_NAME",
-            "product_name is required",
-        )
-
     # 2. review_text
     review_text = _normalize_text(raw_review.review_text)
 
@@ -142,16 +136,16 @@ def _clean_one(
     # 3. review_date
     review_date = _normalize_date(raw_review.review_date)
 
-    if review_date is None:
+    if review_date is None and not _is_missing(raw_review.review_date):
         raise _RejectedReview(
             "INVALID_REVIEW_DATE",
-            "review_date is missing or invalid",
+            "review_date is invalid",
         )
 
     # 4. rating
     rating = _normalize_rating(raw_review.rating)
 
-    if rating is None:
+    if rating is None and not _is_missing(raw_review.rating):
         raise _RejectedReview(
             "INVALID_RATING",
             "rating must be an integer between 1 and 5",
@@ -174,6 +168,11 @@ def _clean_one(
         review_text=review_text,
         cleaned_at=cleaned_at,
     )
+
+
+def _is_missing(value: object | None) -> bool:
+    """Collector/storage represent missing cells as None; blank strings also qualify."""
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _normalize_text(value: object | None) -> str | None:

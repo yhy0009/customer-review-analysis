@@ -83,7 +83,7 @@ class ComparisonTests(unittest.TestCase):
         self.repo._connection.set_trace_callback(None)
         selects = [statement for statement in statements if statement.lstrip().upper().startswith('SELECT')]
         self.assertEqual(len(selects), 1)
-        self.assertEqual(self.repo._connection.execute('PRAGMA user_version').fetchone()[0], 1)
+        self.assertEqual(self.repo._connection.execute('PRAGMA user_version').fetchone()[0], 2)
         with SQLiteReviewRepository(self.path, read_only=True) as readonly:
             self.assertEqual(len(ComparisonService(readonly).compare(ComparisonRequest()).groups), 4)
 

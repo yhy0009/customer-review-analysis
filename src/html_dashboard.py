@@ -89,7 +89,7 @@ def render_dashboard_html(
     metrics = (
         ("정제 리뷰", f"{statistics.total_reviews:,}", "선택한 조건의 전체 리뷰"),
         ("분석 완료", f"{statistics.analyzed_reviews:,}", f"분석 완료율 {coverage:.1%}"),
-        ("평균 별점", average, "전체 정제 리뷰 기준 · 5점 만점"),
+        ("평균 별점", average, "별점이 있는 정제 리뷰 기준 · 5점 만점"),
         ("부정 리뷰 비율", negative, "분석 완료 리뷰 기준"),
     )
     metrics_html = "".join(f'<article class="metric"><h2>{label}</h2><strong>{value}</strong><small>{hint}</small></article>'

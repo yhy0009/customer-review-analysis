@@ -91,10 +91,11 @@ class ComparisonGroup:
     name: str | None
     product_count: int
     statistics: ReviewStatistics
+    missing_label: str = "[카테고리 없음]"
 
     @property
     def label(self) -> str:
-        return self.name if self.name is not None else "[카테고리 없음]"
+        return self.name if self.name is not None else self.missing_label
 
     @property
     def negative_ratio(self) -> float | None:

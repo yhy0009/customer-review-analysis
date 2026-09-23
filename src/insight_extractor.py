@@ -107,11 +107,12 @@ def _matches(detail: ReviewDetail, filters: ReviewFilter) -> bool:
     review, analysis = detail.review, detail.analysis
     return analysis is not None and all((
         filters.sentiment is None or analysis.sentiment is filters.sentiment,
-        filters.date_from is None or review.review_date >= filters.date_from,
-        filters.date_to is None or review.review_date <= filters.date_to,
-        filters.product_name is None or filters.product_name.casefold() in review.product_name.casefold(),
+        filters.date_from is None or (review.review_date is not None and review.review_date >= filters.date_from),
+        filters.date_to is None or (review.review_date is not None and review.review_date <= filters.date_to),
+        filters.product_name is None or (review.product_name is not None
+                                         and filters.product_name.casefold() in review.product_name.casefold()),
         filters.rating is None or review.rating == filters.rating,
-        filters.rating_min is None or review.rating >= filters.rating_min,
+        filters.rating_min is None or (review.rating is not None and review.rating >= filters.rating_min),
     ))
 
 

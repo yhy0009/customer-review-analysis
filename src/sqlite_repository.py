@@ -39,8 +39,8 @@ from src.models import (
 )
 
 
-# Version 1 is the initial schema; future changes require an explicit migration.
-_SCHEMA_VERSION = 1
+# Version 2 permits missing product, date and rating in Clean reviews.
+_SCHEMA_VERSION = 2
 _SCHEMA = (
     """CREATE TABLE raw_reviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,9 +60,9 @@ _SCHEMA = (
     """CREATE TABLE clean_reviews (
         id INTEGER PRIMARY KEY REFERENCES raw_reviews(id) ON DELETE CASCADE,
         source_review_id TEXT,
-        product_name TEXT NOT NULL,
-        review_date TEXT NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        product_name TEXT,
+        review_date TEXT,
+        rating INTEGER CHECK (rating BETWEEN 1 AND 5),
         review_text TEXT NOT NULL,
         cleaned_at TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'CLEANED'
@@ -200,12 +200,12 @@ def _parse_utc(text: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _iso_date(value: date) -> str:
-    return value.isoformat()
+def _iso_date(value: Optional[date]) -> Optional[str]:
+    return value.isoformat() if value is not None else None
 
 
-def _parse_date(text: str) -> date:
-    return date.fromisoformat(text)
+def _parse_date(text: Optional[str]) -> Optional[date]:
+    return date.fromisoformat(text) if text is not None else None
 
 
 def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
@@ -242,7 +242,7 @@ def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
 
 
 class SQLiteReviewRepository:
-    """File-backed repository using schema v1 and stable Raw/Clean IDs.
+    """File-backed repository using schema v2 and stable Raw/Clean IDs.
 
     Relative database paths are resolved against the project root.
     """
@@ -265,10 +265,11 @@ class SQLiteReviewRepository:
                 self.database_path.parent.mkdir(parents=True, exist_ok=True)
                 self._connection = sqlite3.connect(self.database_path)
             self._connection.row_factory = sqlite3.Row
-            self._connection.create_function("CASEFOLD", 1, lambda value: value.casefold(), deterministic=True)
+            self._connection.create_function("CASEFOLD", 1,
+                lambda value: value.casefold() if value is not None else None, deterministic=True)
             self._connection.execute("PRAGMA foreign_keys = ON")
             if read_only:
-                if self._connection.execute("PRAGMA user_version").fetchone()[0] != _SCHEMA_VERSION:
+                if self._connection.execute("PRAGMA user_version").fetchone()[0] not in (1, _SCHEMA_VERSION):
                     raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
                 for table, columns in _SCHEMA_COLUMNS.items():
                     self._connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
@@ -287,24 +288,48 @@ class SQLiteReviewRepository:
 
     def _initialize_schema(self) -> None:
         connection = self._require_connection()
-        # Lock before inspecting version so concurrent first opens cannot race.
-        with connection:
-            connection.execute("BEGIN IMMEDIATE")
-            version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version == 0:
-                existing = connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name NOT LIKE 'sqlite_%'"
-                ).fetchall()
-                if existing:
-                    raise StorageError("기존 미등록 스키마는 자동으로 변경하지 않습니다.")
-                for statement in _SCHEMA:
-                    connection.execute(statement)
-                connection.execute("PRAGMA user_version = 1")
-            elif version != _SCHEMA_VERSION:
-                raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
-            for table, columns in _SCHEMA_COLUMNS.items():
-                connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
+        # Disable FK actions before BEGIN so rebuilding Clean cannot cascade-delete
+        # saved analyses. Check all relationships before committing and re-enable.
+        connection.execute("PRAGMA foreign_keys = OFF")
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                if version == 0:
+                    existing = connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' "
+                        "AND name NOT LIKE 'sqlite_%'"
+                    ).fetchall()
+                    if existing:
+                        raise StorageError("기존 미등록 스키마는 자동으로 변경하지 않습니다.")
+                    for statement in _SCHEMA:
+                        connection.execute(statement)
+                elif version not in (1, _SCHEMA_VERSION):
+                    raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
+                for table, columns in _SCHEMA_COLUMNS.items():
+                    connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
+                if version == 1:
+                    self._migrate_optional_fields(connection)
+                if version in (0, 1):
+                    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                        raise StorageError("SQLite 참조 무결성을 확인할 수 없습니다.")
+                    connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        finally:
+            connection.execute("PRAGMA foreign_keys = ON")
+
+    @staticmethod
+    def _migrate_optional_fields(connection: sqlite3.Connection) -> None:
+        objects = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE tbl_name='clean_reviews' "
+            "AND type IN ('index', 'trigger') AND sql IS NOT NULL"
+        ).fetchall()
+        connection.execute(_SCHEMA[1].replace("CREATE TABLE clean_reviews (", "CREATE TABLE clean_reviews_v2 (", 1))
+        columns = _SCHEMA_COLUMNS["clean_reviews"]
+        connection.execute(f"INSERT INTO clean_reviews_v2 ({columns}) SELECT {columns} FROM clean_reviews")
+        connection.execute("DROP TABLE clean_reviews")
+        connection.execute("ALTER TABLE clean_reviews_v2 RENAME TO clean_reviews")
+        for row in objects:
+            connection.execute(row["sql"])
 
     def save_raw_reviews(
         self,
@@ -674,7 +699,7 @@ class SQLiteReviewRepository:
                        a.summary, a.keywords, a.analyzed_at, a.provider, a.model,
                        a.prompt_version
                 {base}
-                ORDER BY {order_column} {direction}, c.id {direction}
+                ORDER BY {order_column} IS NULL ASC, {order_column} {direction}, c.id {direction}
                 LIMIT ? OFFSET ?
                 """,
                 [*params, query.size, offset],
@@ -745,16 +770,18 @@ class SQLiteReviewRepository:
                 )
                 if category is not None and row_category != category:
                     continue
-                product = normalize_group_name(row["product_name"])
+                product = normalize_group_name(row["product_name"]) if row["product_name"] is not None else None
                 name = product if group_by == "product" else row_category
                 grouped[name].append(row)
-                products[name].add(product)
+                if product is not None:
+                    products[name].add(product)
             except (ValueError, TypeError, RecursionError) as exc:
                 raise StorageError(
                     f"리뷰 ID={row['id']}의 카테고리 메타데이터를 확인하세요: {exc}"
                 ) from exc
         try:
-            return [ComparisonGroup(name, len(products[name]), _aggregate_statistics(items))
+            return [ComparisonGroup(name, len(products[name]), _aggregate_statistics(items),
+                                    missing_label="[제품명 없음]" if group_by == "product" else "[카테고리 없음]")
                     for name, items in grouped.items()]
         except (ValueError, TypeError, ValidationError) as exc:
             raise StorageError("저장된 비교 통계 데이터를 해석할 수 없습니다.") from exc
@@ -837,7 +864,8 @@ def _aggregate_statistics(rows: Sequence[sqlite3.Row]) -> ReviewStatistics:
     negative_keywords: Counter[str] = Counter()
 
     for row in rows:
-        ratings.append(row["rating"])
+        if row["rating"] is not None:
+            ratings.append(row["rating"])
 
         if row["status"] == ProcessingStatus.ANALYSIS_FAILED.value:
             failed += 1
@@ -848,8 +876,10 @@ def _aggregate_statistics(rows: Sequence[sqlite3.Row]) -> ReviewStatistics:
         analyzed += 1
         sentiment = Sentiment(row["sentiment"])
         sentiment_counts[sentiment] += 1
-        daily[_parse_date(row["review_date"])][sentiment] += 1
-        rating_matrix[int(row["rating"])][sentiment] += 1
+        if row["review_date"] is not None:
+            daily[_parse_date(row["review_date"])][sentiment] += 1
+        if row["rating"] is not None:
+            rating_matrix[int(row["rating"])][sentiment] += 1
 
         keywords = _load_keywords(row["keywords"])
         if sentiment is Sentiment.POSITIVE:

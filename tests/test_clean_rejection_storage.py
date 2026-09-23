@@ -52,7 +52,7 @@ class CleanRejectionStorageTests(unittest.TestCase):
         self.assertFalse(self.repository.fetch_unanalyzed_reviews())
         with sqlite3.connect(self.path) as connection:
             self.assertEqual(connection.execute('SELECT count(*) FROM analysis_results').fetchone()[0], 0)
-            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 1)
+            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 2)
 
     def test_status_write_failure_rolls_back_clean_and_analysis_removal(self):
         self.seed_analysis()
