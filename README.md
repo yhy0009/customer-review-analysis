@@ -116,10 +116,8 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── sample_reviews.csv   # 테스트용 샘플 데이터 (30건 이상)
 │   └── app_database.db      # SQLite 영구 저장소 (raw/clean 테이블)
 ├── output/                  # 생성된 차트 이미지 및 리포트 파일
-│   ├── sentiment_distribution.png
-│   ├── sentiment_trend.png
-│   ├── rating_sentiment_matrix.png
-│   └── report_20260110.md
+│   ├── dashboard_20260922_010203.png  # 차트 3종과 키워드를 담은 통합 이미지
+│   └── report_20260922_010203.md
 ├── src/
 │   ├── __init__.py
 │   ├── cli.py               # argparse 서브커맨드 핸들러
@@ -137,6 +135,7 @@ main (배포 및 제출용 안정화 브랜치)
 │   ├── storage.py           # SQLite/JSONL 영구 저장소 관리 모듈
 │   ├── analyzer.py          # AI 감정 분석 및 키워드/요약 추출
 │   ├── visualizer.py        # Matplotlib 대시보드 차트 시각화
+│   ├── dashboard_service.py # 저장된 통계로 차트·리포트 생성 조율
 │   ├── reporter.py          # 종합 리포트 생성기
 │   └── exporter.py          # CSV/JSONL/Excel 데이터 내보내기
 ├── tests/                   # 단위 테스트
@@ -183,9 +182,10 @@ cp config/config_example.json config/config.json
 
 ## 💻 8. CLI 사용법 (Usage Guide)
 
-현재 `main.py`의 기본 실행은 **`import`, `clean`, `analyze`, `extract`, `list`, `show`, `stats`, `export`**를 지원합니다.
-CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 분석·인사이트 추출·조회·내보내기를 수행합니다.
-`dashboard`는 아래 사용 형식을 정의한 상태이며 기본 CLI 연결은 후속 작업입니다.
+현재 `main.py`의 기본 실행은 **`import`, `clean`, `analyze`, `extract`, `list`, `show`, `stats`, `dashboard`, `export`** 9개 명령을 지원합니다.
+CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 분석·인사이트 추출·조회·차트 및 리포트 생성·내보내기를 수행합니다.
+`dashboard`는 API 호출 없이 저장된 통계로 PNG와 TXT/Markdown 리포트를 생성합니다.
+필터·출력 경로·덮어쓰기 사용법은 [대시보드 CLI 안내](docs/DASHBOARD.md)를 참고하세요.
 `import`의 입력 형식과 중복 정책은 [원본 리뷰 적재 안내](docs/IMPORT.md)를 참고하세요.
 `clean`의 정제 기준·재실행 정책과 제외 상태 처리는 [리뷰 정제 안내](docs/CLEAN.md)를 참고하세요.
 원본만 적재한 리뷰는 정제 전까지 조회·통계·AI 분석 대상에 포함되지 않습니다.
@@ -203,7 +203,6 @@ CSV/Excel을 SQLite 원본 저장소에 적재·정제하고, 정제 리뷰의 �
 > 고정 합성 리뷰의 분류 지표와 서비스 전체 흐름을 검증하는 [AI 평가 도구](docs/AI_EVALUATION.md)도 제공합니다.
 > 대량 리뷰는 근거 배치와 전체 인용 목록으로 처리하며, 저장 평가의 [정책 기반 품질 판정](docs/AI_QUALITY_GATE.md)을 제공합니다.
 > 저장소의 기존 import 경로와 구형 DB 처리 방법은 [SQLite 저장소 안내](docs/SQLITE_STORAGE.md)에 있습니다.
-> 아래 예시 중 `dashboard`는 후속 연결을 위한 목표 사용법입니다.
 > `import`에는 실제 리뷰가 들어 있는 입력 파일을 준비하세요. 현재 `data/sample_reviews.csv`는 비어 있습니다.
 
 ```bash
@@ -226,8 +225,8 @@ python main.py show --id 102
 # 6. 전체 통계 요약 확인
 python main.py stats
 
-# 7. 시각화 대시보드 차트 생성
-python main.py dashboard --output output/
+# 7. 저장된 분석 결과로 통합 PNG + Markdown 리포트 생성 (API 호출 없음)
+python main.py dashboard --output output/ --report-format md
 
 # 8. 데이터 내보내기 (Export)
 python main.py export --format csv --sentiment negative --rating-min 3 --output output/negative_reviews.csv

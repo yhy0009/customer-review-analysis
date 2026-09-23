@@ -5,15 +5,15 @@
 `import`, `clean`, `dashboard`에 공통 결과 출력 어댑터와 서비스 주입 방식의
 CLI 등록 경계를 제공한다. `ImportService`는 수집기와 원본 저장소를 연결한다.
 `CleanService`는 저장된 원본을 정제하고 성공·제외 상태를 저장한다.
-차트·리포트 생성 모듈을 조율하는 대시보드 서비스는 후속 작업이다.
+`DashboardService`는 필터 통계를 한 번 조회하고 차트·리포트 생성 모듈을 조율한다.
 기존 `ApplicationServices`, Request, Result 계약은 유지한다.
 
-**기본 CLI는 import/clean/analyze/extract/list/show/stats/export 8개를 실행한다.**
+**기본 CLI는 import/clean/analyze/extract/list/show/stats/dashboard/export 9개를 실행한다.**
 `import`는 기본 생성 함수로 `collector.load_reviews`와 `ImportService`를 구성한다.
 사용법과 중복 정책은 [원본 리뷰 적재 안내](IMPORT.md)를 따른다.
 `clean`은 `cleaner.clean_reviews`와 `CleanService`를 기본 연결한다([리뷰 정제 안내](CLEAN.md)).
-`dashboard`는 실제 서비스 생성 함수를 등록하기 전까지 미연결 오류(종료 코드 2)를 반환한다.
-서비스 준비가 끝난 명령부터 개별 등록할 수 있다.
+`dashboard`는 `DashboardVisualizer`, `FileReportGenerator`, `DashboardService`를 기본 연결한다.
+저장된 통계로 PNG·리포트를 생성하며 API 키가 필요 없다([대시보드 CLI 안내](DASHBOARD.md)).
 
 ## 서비스 등록
 
@@ -49,8 +49,8 @@ def run_import_cli(argv, make_service):
 ```
 
 동일한 방식으로 `clean_factory`, `dashboard_factory`를 함께 전달할 수 있다.
-`import_factory`·`clean_factory`를 생략하면 해당 기본 서비스가 등록되고, 전달하면 교체된다.
-`dashboard_factory`는 생략하면 등록되지 않는다.
+`import_factory`·`clean_factory`·`dashboard_factory`를 생략하면 해당 기본 서비스가 등록되고,
+전달하면 해당 명령의 기본 서비스를 교체한다.
 어느 생성 함수든 명시적으로 `None`을 전달하면 해당 파이프라인 명령을 등록하지 않는다.
 기존 analyze/extract/list/show/stats/export 6개 명령은 매핑에 유지된다.
 구체 서비스와 선택적 패키지의 import는 생성 함수 내부에서 수행해, 도움말이나 다른
@@ -114,6 +114,7 @@ API 키나 원문 전체를 넣지 않아야 한다. 터미널 제어 문자는 
 python -m unittest tests.test_pipeline_handlers tests.test_pipeline_runtime -v
 python -m unittest tests.test_import_service tests.test_import_cli -v
 python -m unittest tests.test_clean_service tests.test_clean_cli tests.test_clean_rejection_storage -v
+python -m unittest tests.test_dashboard_service tests.test_dashboard_cli -v
 python -m unittest discover -s tests -q
 ```
 
@@ -122,4 +123,5 @@ python -m unittest discover -s tests -q
 `python -S` 프로세스에서도 서비스 대역을 주입해 선택적 패키지 없이 연결 경계가 동작하는지
 검증한다. import 테스트는 실제 CSV/Excel과 SQLite를 사용해 기본 연결·중복 정책·오류를 확인한다.
 정제 테스트는 저장 결과 집계·중복 정책·제외 상태·재시도와 import부터 조회까지 확인한다.
-API를 호출하지 않으며, 대시보드 CLI 서비스의 완료 검증은 후속 작업이다.
+대시보드 테스트는 실제 PNG·TXT/MD, 날짜·제품 필터, 빈 통계, 설정 전달과 파일 충돌·실패를 검증한다.
+테스트는 API를 호출하지 않는다.

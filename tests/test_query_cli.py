@@ -145,11 +145,12 @@ class QueryCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertFalse(self.database.exists())
 
-    def test_unconnected_command_does_not_create_database_or_call_ai(self):
+    def test_dashboard_without_matplotlib_gives_dependency_guidance(self):
         result = self.run_cli('dashboard')
         self.assertEqual(result.returncode, 2)
-        self.assertIn('아직 연결되지 않았습니다', result.stderr)
-        self.assertFalse(self.database.exists())
+        self.assertIn('requirements.txt', result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertFalse((self.root / 'output').exists())
 
     def test_unresolvable_config_path_returns_exit_two(self):
         loop = self.root / 'config/loop.json'
