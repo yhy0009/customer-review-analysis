@@ -7,6 +7,7 @@ from html import escape
 from typing import Sequence
 
 from src.errors import OutputError, ValidationError
+from src.html_insights import INSIGHT_STYLE, render_insight_section
 from src.models import (
     InsightResult, KeywordCount, ReviewFilter, ReviewStatistics, Sentiment,
     SentimentChangeResult, SentimentChangeStatus,
@@ -36,7 +37,6 @@ nav{display:flex;flex-wrap:wrap;gap:22px;margin:24px 0 28px;font-size:14px}
 .coverage{margin:14px 0 26px;color:var(--muted);font-size:13px}.panel{padding:24px;margin-bottom:20px;min-width:0;scroll-margin-top:20px}
 .alert{border-left:4px solid #779198}.alert.warning{border-left-color:#bf522f;background:#fff9f3}.alert.normal{border-left-color:#3b8263;background:#f5fbf7}
 .alert pre{font:inherit;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
-.insight-text{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
 .section-heading .note{margin:0 0 12px}.chart{margin:0}.chart img{display:block;width:100%;height:auto}.chart figcaption{font-size:12px;color:var(--muted);margin:8px 0 0}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.grid .panel{margin-bottom:0}.section-grid{margin-bottom:20px}
 .table-scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:10px 12px;border-bottom:1px solid #e7ecee;text-align:left;overflow-wrap:anywhere}
@@ -126,13 +126,8 @@ def render_dashboard_html(
     insight_html = ""
     insight_link = ""
     if insight is not None:
-        from src.query_output import format_insight_result
-
         insight_link = '<a href="#insight">AI 인사이트</a>'
-        insight_html = ('<section class="panel" id="insight"><h2>AI 인사이트</h2>'
-                        '<p class="note">통계와 인사이트의 대상 범위는 서로 다를 수 있습니다. '
-                        '아래 내용은 표시된 추출 대상에 한정됩니다.</p>'
-                        f'<pre class="insight-text">{_text(format_insight_result(insight))}</pre></section>')
+        insight_html = render_insight_section(insight, analyzed_reviews=statistics.analyzed_reviews)
     return f'''<!doctype html>
 <html lang="ko">
 <head>
@@ -140,7 +135,7 @@ def render_dashboard_html(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>고객 리뷰 대시보드</title>
-<style>{_STYLE}</style>
+<style>{_STYLE}{INSIGHT_STYLE}</style>
 </head>
 <body><main class="wrap">
 <header>

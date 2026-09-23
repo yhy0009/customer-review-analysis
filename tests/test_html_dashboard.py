@@ -78,10 +78,12 @@ class HtmlDashboardTests(unittest.TestCase):
 
     def test_saved_insight_scope_summary_and_citations_are_visible_and_escaped(self):
         malicious = '<script>alert(1)</script><img src="https://invalid.test/x">'
-        insight = InsightResult(ReviewFilter(sentiment=Sentiment.NEGATIVE), 1, self.now,
-            summary=malicious, issues=[malicious], improvement_suggestions=['개선 제안'],
-            evidence_groups=[InsightEvidenceGroup(None, 'complaints', '주제',
-                [InsightCitation(7, '주제', malicious)])])
+        insight = InsightResult(ReviewFilter(product_name=malicious, sentiment=Sentiment.NEGATIVE), 1, self.now,
+            summary=malicious, issues=[malicious], improvement_suggestions=[malicious],
+            positive_keywords=[KeywordCount(malicious, 1)], negative_keywords=[KeywordCount(malicious, 1)],
+            evidence_groups=[InsightEvidenceGroup(None, 'complaints', malicious,
+                [InsightCitation(7, malicious, malicious)]),
+                InsightEvidenceGroup(malicious, 'praises', malicious, [InsightCitation(7, malicious, malicious)])])
         document = DashboardHTML(self.render(insight=insight))
         text = ' '.join(document.text)
         for value in (malicious, '제품명 없음', '리뷰 7', '분석 완료 리뷰 1건', '부정', '개선 제안',
@@ -89,7 +91,35 @@ class HtmlDashboardTests(unittest.TestCase):
             self.assertIn(value, text)
         self.assertEqual(len(document.images), 1)
         self.assertNotIn('script', [tag for tag, _ in document.elements])
+        self.assertFalse(any(key.lower().startswith('on') for _, attrs in document.elements for key in attrs))
         self.assertTrue(any(attrs.get('href') == '#insight' for _, attrs in document.elements))
+
+    def test_all_evidence_is_kept_when_summary_only_covers_top_complaints(self):
+        insight = InsightResult(ReviewFilter(), 2, self.now, summary='선택된 주제 요약',
+            summary_scope='top_complaints', evidence_groups=[
+                InsightEvidenceGroup('제품 A', 'complaints', '배터리', [
+                    InsightCitation(7, '배터리', '첫 번째 인용\n두 번째 줄'),
+                    InsightCitation(7, '배터리', '같은 리뷰의 다른 인용')]),
+                InsightEvidenceGroup('제품 B', 'praises', '좋은 음질', [
+                    InsightCitation(8, '좋은 음질', '요약에 없는 제품의 원문')])])
+        document = DashboardHTML(self.render(insight=insight))
+        text = ' '.join(document.text)
+        for value in ('2개 주제', '주요 불편 최대 3개', '첫 번째 인용\n두 번째 줄',
+                      '같은 리뷰의 다른 인용', '요약에 없는 제품의 원문', '리뷰 8'):
+            self.assertIn(value, text)
+        counts = self.render(insight=insight).count('<span class="insight-count">1건</span>')
+        self.assertEqual(counts, 2)  # Count unique reviews, not quote fragments.
+        self.assertEqual(len([tag for tag, _ in document.elements if tag == 'blockquote']), 3)
+
+    def test_zero_review_insight_suppresses_stale_optional_content(self):
+        stale = '오래된 결과는 표시하면 안 됨'
+        insight = InsightResult(ReviewFilter(), 0, self.now, summary=stale, issues=[stale],
+            improvement_suggestions=[stale], positive_keywords=[KeywordCount(stale, 1)],
+            evidence_groups=[InsightEvidenceGroup(stale, 'complaints', stale, [InsightCitation(7, stale, stale)])])
+        text = ' '.join(DashboardHTML(self.render(insight=insight)).text)
+        self.assertNotIn(stale, text)
+        self.assertIn('조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다.', text)
+        self.assertIn('분석 완료 리뷰 0건', text)
 
     def test_sentiment_warning_is_included_with_its_periods_and_counts(self):
         result = detect_sentiment_change(self.stats, self.filters, SentimentAlertOptions(), today=self.now.date())
