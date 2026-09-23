@@ -11,6 +11,7 @@ from typing import Callable
 from src.errors import OutputError
 from src.models import DashboardRequest, DashboardResult, OutputArtifact
 from src.services import ReportGenerator, ReviewVisualizer
+from src.sentiment_alerts import detect_sentiment_change
 from src.storage import ReviewRepository
 
 
@@ -40,8 +41,12 @@ class DashboardService:
     def create_dashboard(self, request: DashboardRequest) -> DashboardResult:
         # SQLite aggregates these statistics from a single SELECT. Every output
         # consumes the same result, including when other commands update the DB.
+        now = self._clock().astimezone(timezone.utc)
         statistics = self.repository.get_statistics(request.filters)
-        timestamp = self._clock().astimezone(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        sentiment_change = (detect_sentiment_change(
+            statistics, request.filters, request.alert_options, today=now.date(),
+        ) if request.alert_options is not None else None)
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
         chart_name = f"dashboard_{timestamp}.png"
         report_name = f"report_{timestamp}.{request.report_format.value}"
         published: list[OutputArtifact] = []
@@ -86,7 +91,8 @@ class DashboardService:
             if published:
                 message += " 이미 저장된 파일: " + ", ".join(str(a.path) for a in published)
             raise OutputError(message) from exc
-        return DashboardResult(artifacts=published, statistics=statistics, insight=None)
+        return DashboardResult(artifacts=published, statistics=statistics, insight=None,
+                               sentiment_change=sentiment_change)
 
     @staticmethod
     def _check_target(target: Path, *, force: bool) -> None:

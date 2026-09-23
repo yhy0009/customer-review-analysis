@@ -50,6 +50,43 @@ output/
 필터는 두 산출물에 동일하게 적용한다. 현재 통계 DTO에는 필터 정보가 없으므로
 리포트 본문에 필터 문자열은 표시되지 않는다. 조건별 출력 디렉터리로 구분할 수 있다.
 
+## 감정 변화 알림
+
+명령 실행 시 기존 일별 통계로 최근 N일과 직전 N일의 부정 리뷰 비율을 비교하고,
+생성 파일 경로에 이어 **CLI stdout**에 판정 결과를 표시한다. 추가 DB 조회나 AI 호출은 없다.
+
+| 옵션 | 기본값 | 의미 |
+|---|---:|---|
+| `--alert-days` | 7 | 각 비교 기간의 일수. 1~3650 |
+| `--alert-threshold` | 20 | 부정 비율이 이 값 이상 상승하면 경고. 단위 %p, 0 초과 100 이하 |
+| `--alert-min-reviews` | 5 | 각 기간에 필요한 최소 분석 완료 리뷰 수. 양의 정수 |
+| `--no-alerts` | 미지정 | 알림 판정을 생략할 때 지정 |
+
+```bash
+python main.py dashboard --product 이어폰 --date-to 2026-09-22 \
+  --alert-days 7 --alert-threshold 20 --alert-min-reviews 5
+```
+
+최근 기간은 **`--date-to` 또는 실행일의 UTC 날짜**까지 양 끝 날짜를 포함한다.
+위 예시의 최근 기간은 9월 16~22일, 직전 기간은 9월 9~15일이다. 분석 실행일이 아닌
+**리뷰 작성일**을 사용한다. 제품 필터는 두 기간에 동일하게 적용된다.
+
+부정 비율은 `부정 분석 건수 / 전체 분석 완료 건수`다. 미분석·실패 리뷰는 분모에서 제외한다.
+20%에서 40%로 상승하면 **+20%p**이므로 기본 기준에서 경고한다. 20%에서 30%로 상승하면
++10%p이므로 경고하지 않는다. 반올림 전 비율 차이로 판정하며 경계값도 포함한다.
+
+```text
+감정 변화 확인 (각 7일, 리뷰 작성일 기준)
+[경고] 부정 리뷰 비율 급증: 20.0% → 80.0% (+60.0%p, 경고 기준 +20%p)
+  직전: 2026-09-09 ~ 2026-09-15 (분석 5건 / 부정 1건)
+  최근: 2026-09-16 ~ 2026-09-22 (분석 5건 / 부정 4건)
+```
+
+기간별 표본이 부족하면 `[판정 보류]`로 표시한다. `--date-from`이 두 기간 중 일부를
+제외하면 날짜 범위를 넓히도록 안내한다. 서비스에 감정 필터를 직접 전달한 경우에도
+전체 분석 리뷰 기준 비율을 계산할 수 없어 판정을 보류한다.
+경고·정상·판정 보류 모두 파일 생성이 성공하면 종료 코드는 0이다.
+
 ## 설정과 파일 보호
 
 `visualization.font_family`와 `visualization.dpi`를 차트 생성기에 전달한다.
@@ -76,10 +113,13 @@ output/
 `src/runtime.py`가 명령 실행 시에만 시각화 모듈을 불러오고 `DashboardService`를 구성한다.
 서비스는 `repository.get_statistics(filters)`를 한 번 호출해 같은 결과를 두 생성기에
 전달하며 DB 내용을 수정하지 않는다. 저장소 연결은 런타임이 닫는다.
-`DashboardRequest`, `DashboardResult`, `ReviewVisualizer`, `ReportGenerator` 계약은 유지한다.
+`DashboardRequest.alert_options`로 알림 설정을 전달하며 `None`이면 생략한다.
+`DashboardResult.sentiment_change`에 판정·기간·건수·설정을 반환한다.
+두 필드는 기본값을 가진 추가 필드이며 `ReviewVisualizer`, `ReportGenerator` 계약은 유지한다.
 
 ```bash
 python -m unittest tests.test_dashboard_service tests.test_dashboard_cli tests.test_pipeline_runtime -v
+python -m unittest tests.test_sentiment_alerts -v
 python -m unittest discover -s tests -q
 ```
 

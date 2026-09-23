@@ -127,6 +127,18 @@ class PipelineHandlerTests(unittest.TestCase):
         self.assertIn('생성된 파일이 없습니다', out)
         self.assertFalse(err)
 
+    def test_dashboard_alert_options_and_explicit_disable(self):
+        result = DashboardResult([], ReviewStatistics(0, 0, 0, 0))
+        method = Mock(return_value=result)
+        code, _, err = self.invoke(build_dashboard_handler, method,
+            ['dashboard', '--alert-days', '14', '--alert-threshold', '12.5', '--alert-min-reviews', '10'])
+        self.assertEqual(code, 0, err)
+        options = method.call_args.args[0].alert_options
+        self.assertEqual((options.days, options.threshold_pp, options.min_reviews), (14, 12.5, 10))
+        code, _, err = self.invoke(build_dashboard_handler, method, ['dashboard', '--no-alerts'])
+        self.assertEqual(code, 0, err)
+        self.assertIsNone(method.call_args.args[0].alert_options)
+
     def test_invalid_request_fails_before_service_call(self):
         self.config['cleaning']['min_review_length'] = 0
         for builder, argv in (

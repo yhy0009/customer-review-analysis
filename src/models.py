@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+import math
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
@@ -19,6 +20,14 @@ class Sentiment(str, Enum):
     POSITIVE = "positive"
     NEUTRAL = "neutral"
     NEGATIVE = "negative"
+
+
+class SentimentChangeStatus(str, Enum):
+    WARNING = "warning"
+    NORMAL = "normal"
+    INSUFFICIENT_DATA = "insufficient_data"
+    INCOMPLETE_PERIOD = "incomplete_period"
+    SENTIMENT_FILTERED = "sentiment_filtered"
 
 
 class DuplicatePolicy(str, Enum):
@@ -429,11 +438,43 @@ class OutputArtifact:
             raise ValidationError("artifact format must be non-empty")
 
 
+@dataclass(frozen=True, slots=True)
+class SentimentAlertOptions:
+    days: int = 7
+    threshold_pp: float = 20.0
+    min_reviews: int = 5
+
+    def __post_init__(self) -> None:
+        _require_positive_integer(self.days, "alert_days")
+        if self.days > 3650:
+            raise ValidationError("alert_days는 3650 이하여야 합니다.")
+        _require_positive_integer(self.min_reviews, "alert_min_reviews")
+        if (isinstance(self.threshold_pp, bool)
+                or not isinstance(self.threshold_pp, (int, float))
+                or not math.isfinite(self.threshold_pp) or not 0 < self.threshold_pp <= 100):
+            raise ValidationError("alert_threshold는 0 초과 100 이하의 유한한 숫자(%p)여야 합니다.")
+
+
+@dataclass(frozen=True, slots=True)
+class SentimentChangeResult:
+    status: SentimentChangeStatus
+    options: SentimentAlertOptions
+    previous_start: date
+    previous_end: date
+    recent_start: date
+    recent_end: date
+    previous_analyzed: int
+    previous_negative: int
+    recent_analyzed: int
+    recent_negative: int
+
+
 @dataclass(slots=True)
 class DashboardResult:
     artifacts: List[OutputArtifact]
     statistics: ReviewStatistics
     insight: Optional[InsightResult] = None
+    sentiment_change: Optional[SentimentChangeResult] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -555,12 +596,19 @@ class DashboardRequest:
     output: Path
     report_format: ReportFormat
     force: bool = False
+    alert_options: Optional[SentimentAlertOptions] = field(default_factory=SentimentAlertOptions)
 
     def __post_init__(self) -> None:
         if not isinstance(self.output, Path) or not self.output.is_absolute():
             raise ValidationError("dashboard output must be an absolute Path")
         if not isinstance(self.report_format, ReportFormat):
             raise ValidationError("report_format must be a ReportFormat value")
+        if self.alert_options is not None:
+            if not isinstance(self.alert_options, SentimentAlertOptions):
+                raise ValidationError("alert_options must be SentimentAlertOptions or None")
+            if (self.filters.date_to is not None
+                    and self.filters.date_to.toordinal() < 2 * self.alert_options.days):
+                raise ValidationError("종료 날짜 이전에 두 비교 기간을 확보할 수 없습니다.")
 
 
 @dataclass(frozen=True, slots=True)

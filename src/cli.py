@@ -250,6 +250,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="같은 이름의 기존 출력 파일 덮어쓰기",
     )
+    dashboard_parser.add_argument(
+        "--alert-days", type=int, default=7,
+        help="최근·직전 부정 비율 비교 기간 일수 (각 기간 기본 7일, 최대 3650일)",
+    )
+    dashboard_parser.add_argument(
+        "--alert-threshold", type=float, default=20.0,
+        help="부정 비율 상승 경고 기준 (퍼센트포인트, 기본 20, 0 초과 100 이하)",
+    )
+    dashboard_parser.add_argument(
+        "--alert-min-reviews", type=int, default=5,
+        help="기간별 판정에 필요한 최소 분석 완료 리뷰 수 (기본 5건)",
+    )
+    dashboard_parser.add_argument(
+        "--no-alerts", action="store_true", help="감정 변화 판정을 생략",
+    )
 
     export_parser = subparsers.add_parser(
         "export",
