@@ -1,0 +1,130 @@
+{
+  "version": "cornell-movie-sentence-polarity-20-v1",
+  "source_url": "https://www.cs.cornell.edu/people/pabo/movie-review-data/",
+  "source_release": "sentence polarity dataset v1.0 (Pang and Lee, ACL 2005)",
+  "archive_sha256": "a05befe52aafda71d458d188a1c54506a998b1308613ba76bbda2e5029409ce9",
+  "selection": "10 positive and 10 negative snippets sampled without replacement. Require 10-20 whitespace-separated words, a film-related term, and no angle brackets; Python Random seeds 20260927/20260928, shuffle seed 20260929. Only leading/trailing whitespace is trimmed from each snippet. Line numbers are 1-based in original files split on newline bytes.",
+  "label_provenance": "Source fresh/rotten labels were automatically assigned; human validation pending. No neutral movie class in this release.",
+  "cases": [
+    {
+      "blind_id": "M001",
+      "source_file": "rt-polarity.neg",
+      "line_number": 4662,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M002",
+      "source_file": "rt-polarity.neg",
+      "line_number": 608,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M003",
+      "source_file": "rt-polarity.neg",
+      "line_number": 5180,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M004",
+      "source_file": "rt-polarity.neg",
+      "line_number": 4673,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M005",
+      "source_file": "rt-polarity.neg",
+      "line_number": 3641,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M006",
+      "source_file": "rt-polarity.neg",
+      "line_number": 5046,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M007",
+      "source_file": "rt-polarity.pos",
+      "line_number": 2093,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M008",
+      "source_file": "rt-polarity.pos",
+      "line_number": 1570,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M009",
+      "source_file": "rt-polarity.pos",
+      "line_number": 2447,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M010",
+      "source_file": "rt-polarity.pos",
+      "line_number": 3237,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M011",
+      "source_file": "rt-polarity.pos",
+      "line_number": 2795,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M012",
+      "source_file": "rt-polarity.pos",
+      "line_number": 498,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M013",
+      "source_file": "rt-polarity.neg",
+      "line_number": 1324,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M014",
+      "source_file": "rt-polarity.pos",
+      "line_number": 788,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M015",
+      "source_file": "rt-polarity.pos",
+      "line_number": 3280,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M016",
+      "source_file": "rt-polarity.pos",
+      "line_number": 474,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M017",
+      "source_file": "rt-polarity.neg",
+      "line_number": 5184,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M018",
+      "source_file": "rt-polarity.pos",
+      "line_number": 4523,
+      "source_label": "positive"
+    },
+    {
+      "blind_id": "M019",
+      "source_file": "rt-polarity.neg",
+      "line_number": 217,
+      "source_label": "negative"
+    },
+    {
+      "blind_id": "M020",
+      "source_file": "rt-polarity.neg",
+      "line_number": 1748,
+      "source_label": "negative"
+    }
+  ]
+}
