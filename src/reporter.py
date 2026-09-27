@@ -45,7 +45,9 @@ def _filter_text(filters: ReviewFilter) -> str:
     if filters.date_from is not None or filters.date_to is not None:
         parts.append(f"기간={filters.date_from or '시작 제한 없음'} ~ {filters.date_to or '종료 제한 없음'}")
     if filters.product_name is not None:
-        parts.append(f"제품명 포함={filters.product_name}")
+        parts.append(f"대상명 {'일치' if filters.target_match == 'exact' else '포함'}={filters.product_name}")
+    if filters.review_domain is not None:
+        parts.append(f"리뷰 유형={filters.review_domain.value}")
     if filters.rating is not None:
         parts.append(f"별점={filters.rating}")
     if filters.rating_min is not None:
@@ -224,7 +226,7 @@ class FileReportGenerator:
                     for number, group in enumerate(insight.evidence_groups, 1):
                         kind = "불편" if group.kind == "complaints" else "장점"
                         lines.extend(["", f"- 근거 주제 {number}: " + _text(
-                            f"{group.product_name or '제품명 없음'} / {kind} / {group.label} ({group.review_count}건)", markdown)])
+                            f"{group.product_name or '대상명 없음'} / {kind} / {group.label} ({group.review_count}건)", markdown)])
                         for citation in group.citations:
                             lines.append(f"  - 리뷰 {citation.review_id}: " + _text(
                                 f"{citation.label} — {citation.quote}", markdown))

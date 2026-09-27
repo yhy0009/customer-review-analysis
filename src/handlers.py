@@ -38,6 +38,7 @@ from src.models import (
     ListRequest,
     Page,
     ReviewDetail,
+    ReviewDomain,
     ReviewStatistics,
     ReportFormat,
     ReviewFilter,
@@ -108,6 +109,8 @@ def _review_filter(args: argparse.Namespace) -> ReviewFilter:
     sentiment_value = getattr(args, "sentiment", None)
     try:
         sentiment = Sentiment(sentiment_value) if sentiment_value is not None else None
+        domain_value = getattr(args, "domain", None)
+        domain = ReviewDomain(domain_value) if domain_value is not None else None
     except ValueError as exc:
         raise ValidationError("지원하지 않는 감정 필터입니다.") from exc
     return ReviewFilter(
@@ -117,6 +120,8 @@ def _review_filter(args: argparse.Namespace) -> ReviewFilter:
         product_name=getattr(args, "product", None),
         rating=getattr(args, "rating", None),
         rating_min=getattr(args, "rating_min", None),
+        review_domain=domain,
+        target_match="exact" if getattr(args, "exact_target", False) else "contains",
     )
 
 

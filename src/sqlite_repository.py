@@ -15,6 +15,7 @@ from pathlib import Path
 from src.config import get_logger
 from src.errors import RawReviewChangedError, StorageError, ValidationError
 from src.comparison import ComparisonGroup, category_from_payload, normalize_group_name
+from src.review_domain import review_domain_from_payload
 
 from typing import Any, Iterator, List, Mapping, Optional, Sequence
 from collections import Counter, defaultdict
@@ -27,6 +28,7 @@ from src.models import (
     ItemError,
     KeywordCount,
     Sentiment,
+    SummaryStatus,
     SortField,
     SortOrder,
     Page,
@@ -39,8 +41,8 @@ from src.models import (
 )
 
 
-# Version 2 permits missing product, date and rating in Clean reviews.
-_SCHEMA_VERSION = 2
+# Version 3 records why an individual summary is absent.
+_SCHEMA_VERSION = 3
 _SCHEMA = (
     """CREATE TABLE raw_reviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +78,7 @@ _SCHEMA = (
         sentiment TEXT NOT NULL CHECK (sentiment IN ('positive', 'neutral', 'negative')),
         confidence REAL NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
         summary TEXT,
+        summary_status TEXT,
         keywords TEXT NOT NULL,
         analyzed_at TEXT NOT NULL,
         provider TEXT NOT NULL,
@@ -226,10 +229,16 @@ def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
         clauses.append("c.review_date <= ?")
         params.append(filters.date_to.isoformat())
     if filters.product_name is not None:
-        # 대소문자를 구분하지 않는 부분 일치
-        clauses.append("CASEFOLD(c.product_name) LIKE ? ESCAPE '!' ")
-        literal = filters.product_name.casefold().replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        params.append(f"%{literal}%")
+        if filters.target_match == "exact":
+            clauses.append("CASEFOLD(c.product_name) = ?")
+            params.append(filters.product_name.casefold())
+        else:
+            clauses.append("CASEFOLD(c.product_name) LIKE ? ESCAPE '!' ")
+            literal = filters.product_name.casefold().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            params.append(f"%{literal}%")
+    if filters.review_domain is not None:
+        clauses.append("REVIEW_DOMAIN(r.raw_payload) = ?")
+        params.append(filters.review_domain.value)
     if filters.rating is not None:
         clauses.append("c.rating = ?")
         params.append(filters.rating)
@@ -242,7 +251,7 @@ def _build_where(filters: Optional[ReviewFilter]) -> tuple[str, list[Any]]:
 
 
 class SQLiteReviewRepository:
-    """File-backed repository using schema v2 and stable Raw/Clean IDs.
+    """File-backed repository using schema v3 and stable Raw/Clean IDs.
 
     Relative database paths are resolved against the project root.
     """
@@ -267,15 +276,21 @@ class SQLiteReviewRepository:
             self._connection.row_factory = sqlite3.Row
             self._connection.create_function("CASEFOLD", 1,
                 lambda value: value.casefold() if value is not None else None, deterministic=True)
+            self._connection.create_function("REVIEW_DOMAIN", 1,
+                lambda value: review_domain_from_payload(json.loads(value)).value, deterministic=True)
             self._connection.execute("PRAGMA foreign_keys = ON")
             if read_only:
-                if self._connection.execute("PRAGMA user_version").fetchone()[0] not in (1, _SCHEMA_VERSION):
+                if self._connection.execute("PRAGMA user_version").fetchone()[0] not in (1, 2, _SCHEMA_VERSION):
                     raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
                 for table, columns in _SCHEMA_COLUMNS.items():
                     self._connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
                 self._connection.execute("PRAGMA query_only = ON")
             else:
                 self._initialize_schema()
+            self._has_summary_status = "summary_status" in {
+                row[1] for row in self._connection.execute("PRAGMA table_info(analysis_results)")}
+            if self._connection.execute("PRAGMA user_version").fetchone()[0] == 3 and not self._has_summary_status:
+                raise StorageError("요약 상태 스키마가 누락되었습니다.")
         except (OSError, sqlite3.Error, StorageError) as exc:
             self.close()
             self._logger.error("SQLite initialization failed")
@@ -304,13 +319,15 @@ class SQLiteReviewRepository:
                         raise StorageError("기존 미등록 스키마는 자동으로 변경하지 않습니다.")
                     for statement in _SCHEMA:
                         connection.execute(statement)
-                elif version not in (1, _SCHEMA_VERSION):
+                elif version not in (1, 2, _SCHEMA_VERSION):
                     raise StorageError("지원하지 않는 SQLite 스키마 버전입니다.")
                 for table, columns in _SCHEMA_COLUMNS.items():
                     connection.execute(f"SELECT {columns} FROM {table} LIMIT 0")
                 if version == 1:
                     self._migrate_optional_fields(connection)
-                if version in (0, 1):
+                if version in (1, 2):
+                    connection.execute("ALTER TABLE analysis_results ADD COLUMN summary_status TEXT")
+                if version in (0, 1, 2):
                     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                         raise StorageError("SQLite 참조 무결성을 확인할 수 없습니다.")
                     connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
@@ -481,8 +498,13 @@ class SQLiteReviewRepository:
                         review.__post_init__()
                         if review.source_review_id is not None and not isinstance(review.source_review_id, str):
                             raise ValidationError("source_review_id must be a string")
-                        if connection.execute("SELECT id FROM raw_reviews WHERE id=?", (review.id,)).fetchone() is None:
+                        source = connection.execute(
+                            "SELECT raw_payload FROM raw_reviews WHERE id=?", (review.id,)
+                        ).fetchone()
+                        if source is None:
                             raise ValidationError("Matching Raw review is required")
+                        if review_domain_from_payload(json.loads(source["raw_payload"])) is not review.review_domain:
+                            raise ValidationError("Clean review domain must match raw metadata")
                         existing = connection.execute("SELECT * FROM clean_reviews WHERE id=?", (review.id,)).fetchone()
                         if existing is not None and policy is DuplicatePolicy.SKIP:
                             skipped += 1
@@ -571,15 +593,16 @@ class SQLiteReviewRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     "INSERT INTO analysis_results (review_id, sentiment, confidence, summary, keywords, "
-                    "analyzed_at, provider, model, prompt_version, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "analyzed_at, provider, model, prompt_version, created_at, updated_at, summary_status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(review_id) DO UPDATE SET sentiment=excluded.sentiment, "
                     "confidence=excluded.confidence, summary=excluded.summary, keywords=excluded.keywords, "
                     "analyzed_at=excluded.analyzed_at, provider=excluded.provider, model=excluded.model, "
-                    "prompt_version=excluded.prompt_version, updated_at=excluded.updated_at",
+                    "prompt_version=excluded.prompt_version, updated_at=excluded.updated_at, "
+                    "summary_status=excluded.summary_status",
                     (result.review_id, result.sentiment.value, result.confidence, result.summary,
                      _json_dump(list(dict.fromkeys(result.keywords))), _utc_iso(result.analyzed_at),
-                     result.provider, result.model, result.prompt_version, now, now),
+                     result.provider, result.model, result.prompt_version, now, now, result.summary_status.value),
                 )
                 connection.execute("UPDATE clean_reviews SET status='ANALYZED', error_message=NULL, updated_at=? WHERE id=?",
                                    (now, result.review_id))
@@ -617,7 +640,8 @@ class SQLiteReviewRepository:
     ) -> list[CleanReview]:
         where, params = _build_where(filters)
         query = (
-            "SELECT c.* FROM clean_reviews c "
+            "SELECT c.*, r.raw_payload AS domain_payload FROM clean_reviews c "
+            "JOIN raw_reviews r ON r.id = c.id "
             "LEFT JOIN analysis_results a ON a.review_id = c.id"
             f"{where} ORDER BY c.id ASC"
         )
@@ -639,7 +663,8 @@ class SQLiteReviewRepository:
     ) -> list[CleanReview]:
         # 분석 결과가 없는 리뷰(신규 CLEANED + 재시도 대상 ANALYSIS_FAILED).
         query = (
-            "SELECT c.* FROM clean_reviews c "
+            "SELECT c.*, r.raw_payload AS domain_payload FROM clean_reviews c "
+            "JOIN raw_reviews r ON r.id = c.id "
             "LEFT JOIN analysis_results a ON a.review_id = c.id "
             "WHERE a.review_id IS NULL ORDER BY c.id ASC"
         )
@@ -659,11 +684,13 @@ class SQLiteReviewRepository:
         _validate_id(review_id)
         try:
             row = self._require_connection().execute(
-                """
-                SELECT c.*, a.review_id AS a_review_id, a.sentiment, a.confidence,
+                f"""
+                SELECT c.*, r.raw_payload AS domain_payload,
+                       a.review_id AS a_review_id, a.sentiment, a.confidence,
                        a.summary, a.keywords, a.analyzed_at, a.provider, a.model,
-                       a.prompt_version
+                       a.prompt_version, {"a.summary_status" if self._has_summary_status else "NULL"} AS summary_status
                 FROM clean_reviews c
+                JOIN raw_reviews r ON r.id = c.id
                 LEFT JOIN analysis_results a ON a.review_id = c.id
                 WHERE c.id = ?
                 """,
@@ -680,6 +707,7 @@ class SQLiteReviewRepository:
         where, params = _build_where(query.filters)
         base = (
             "FROM clean_reviews c "
+            "JOIN raw_reviews r ON r.id = c.id "
             "LEFT JOIN analysis_results a ON a.review_id = c.id"
             f"{where}"
         )
@@ -695,9 +723,10 @@ class SQLiteReviewRepository:
 
             rows = self._require_connection().execute(
                 f"""
-                SELECT c.*, a.review_id AS a_review_id, a.sentiment, a.confidence,
+                SELECT c.*, r.raw_payload AS domain_payload,
+                       a.review_id AS a_review_id, a.sentiment, a.confidence,
                        a.summary, a.keywords, a.analyzed_at, a.provider, a.model,
-                       a.prompt_version
+                       a.prompt_version, {"a.summary_status" if self._has_summary_status else "NULL"} AS summary_status
                 {base}
                 ORDER BY {order_column} IS NULL ASC, {order_column} {direction}, c.id {direction}
                 LIMIT ? OFFSET ?
@@ -728,6 +757,7 @@ class SQLiteReviewRepository:
                 SELECT c.rating, c.review_date, c.status,
                        a.sentiment, a.keywords
                 FROM clean_reviews c
+                JOIN raw_reviews r ON r.id = c.id
                 LEFT JOIN analysis_results a ON a.review_id = c.id
                 {where}
                 """,
@@ -781,7 +811,7 @@ class SQLiteReviewRepository:
                 ) from exc
         try:
             return [ComparisonGroup(name, len(products[name]), _aggregate_statistics(items),
-                                    missing_label="[제품명 없음]" if group_by == "product" else "[카테고리 없음]")
+                                    missing_label="[대상명 없음]" if group_by == "product" else "[카테고리 없음]")
                     for name, items in grouped.items()]
         except (ValueError, TypeError, ValidationError) as exc:
             raise StorageError("저장된 비교 통계 데이터를 해석할 수 없습니다.") from exc
@@ -822,6 +852,7 @@ def _row_to_clean(row: sqlite3.Row) -> CleanReview:
         rating=row["rating"],
         review_text=row["review_text"],
         cleaned_at=_parse_utc(row["cleaned_at"]),
+        review_domain=review_domain_from_payload(json.loads(row["domain_payload"])),
     )
 
 
@@ -837,6 +868,7 @@ def _row_to_analysis(row: sqlite3.Row) -> Optional[AnalysisResult]:
         provider=row["provider"],
         model=row["model"],
         summary=row["summary"],
+        summary_status=SummaryStatus(row["summary_status"]) if row["summary_status"] is not None else None,
         keywords=list(keywords) if isinstance(keywords, list) else [],
         prompt_version=row["prompt_version"],
     )

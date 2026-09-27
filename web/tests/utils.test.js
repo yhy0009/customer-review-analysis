@@ -11,7 +11,7 @@ test("query serialization keeps product text literal and drops unknown fields", 
 });
 test("empty filters reset to all-scope and page one", () => {
   assert.equal(queryString({}), "page=1");
-  assert.equal(scopeText({}), "전체 제품 · 전체 기간 · 전체 감정");
+  assert.equal(scopeText({}), "전체 대상 · 전체 기간 · 전체 감정");
   assert.match(scopeText({date_to: "2026-09-16", sentiment: "negative"}), /시작 제한 없음 ~ 2026-09-16 · 부정/);
 });
 test("zero values and missing dates are explicit", () => {

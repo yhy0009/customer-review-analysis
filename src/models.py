@@ -22,6 +22,33 @@ class Sentiment(str, Enum):
     NEGATIVE = "negative"
 
 
+class ReviewDomain(str, Enum):
+    PRODUCT = "product"
+    MOVIE = "movie"
+
+
+class SummaryStatus(str, Enum):
+    AVAILABLE = "available"
+    NOT_PROVIDED = "not_provided"
+    FILTERED_LENGTH = "filtered_length"
+    FILTERED_LANGUAGE = "filtered_language"
+    FILTERED_SOURCE_COPY = "filtered_source_copy"
+    FILTERED_INSTRUCTION = "filtered_instruction"
+    LEGACY_UNKNOWN = "legacy_unknown"
+
+    @property
+    def label(self) -> str:
+        return {
+            "available": "요약 제공됨",
+            "not_provided": "모델이 요약을 제공하지 않음",
+            "filtered_length": "요약 제외: 길이 제한 초과",
+            "filtered_language": "요약 제외: 한국어 요약 아님",
+            "filtered_source_copy": "요약 제외: 원문 전체 반복",
+            "filtered_instruction": "요약 제외: 리뷰 속 명령 반복",
+            "legacy_unknown": "요약 없음: 이전 결과에 사유가 기록되지 않음",
+        }[self.value]
+
+
 class SentimentChangeStatus(str, Enum):
     WARNING = "warning"
     NORMAL = "normal"
@@ -126,6 +153,7 @@ class CleanReview:
     review_text: str
     cleaned_at: datetime
     source_review_id: Optional[str] = None
+    review_domain: ReviewDomain = ReviewDomain.PRODUCT
 
     def __post_init__(self) -> None:
         _require_positive_integer(self.id, "id")
@@ -144,6 +172,8 @@ class CleanReview:
                 raise ValidationError("rating must be between 1 and 5")
         if not isinstance(self.review_text, str) or not self.review_text.strip():
             raise ValidationError("review_text must be a non-empty string")
+        if not isinstance(self.review_domain, ReviewDomain):
+            raise ValidationError("review_domain must be product or movie")
         _require_utc(self.cleaned_at, "cleaned_at")
 
 
@@ -158,6 +188,7 @@ class AnalysisResult:
     summary: Optional[str] = None
     keywords: List[str] = field(default_factory=list)
     prompt_version: Optional[str] = None
+    summary_status: Optional[SummaryStatus] = None
 
     def __post_init__(self) -> None:
         _require_positive_integer(self.review_id, "review_id")
@@ -176,6 +207,16 @@ class AnalysisResult:
             raise ValidationError("model must be a non-empty string")
         if any(not isinstance(keyword, str) or not keyword.strip() for keyword in self.keywords):
             raise ValidationError("keywords must contain non-empty strings")
+        if self.summary is not None and not isinstance(self.summary, str):
+            raise ValidationError("summary must be text or None")
+        if isinstance(self.summary, str) and not self.summary.strip():
+            self.summary = None
+        if self.summary_status is None:
+            self.summary_status = SummaryStatus.AVAILABLE if self.summary else SummaryStatus.LEGACY_UNKNOWN
+        if not isinstance(self.summary_status, SummaryStatus):
+            raise ValidationError("summary_status must be a SummaryStatus value")
+        if (self.summary_status is SummaryStatus.AVAILABLE) != (self.summary is not None):
+            raise ValidationError("summary_status must match summary presence")
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +238,8 @@ class ReviewFilter:
     product_name: Optional[str] = None
     rating: Optional[int] = None
     rating_min: Optional[int] = None
+    review_domain: Optional[ReviewDomain] = None
+    target_match: str = "contains"
 
     def __post_init__(self) -> None:
         if self.sentiment is not None and not isinstance(self.sentiment, Sentiment):
@@ -215,6 +258,12 @@ class ReviewFilter:
         if self.product_name is not None:
             if not isinstance(self.product_name, str) or not self.product_name.strip():
                 raise ValidationError("product_name must be a non-empty string")
+        if self.review_domain is not None and not isinstance(self.review_domain, ReviewDomain):
+            raise ValidationError("review_domain must be product or movie")
+        if self.target_match not in ("contains", "exact"):
+            raise ValidationError("target_match must be contains or exact")
+        if self.target_match == "exact" and self.product_name is None:
+            raise ValidationError("정확히 일치할 대상 이름을 지정하세요.")
         for field_name, value in (("rating", self.rating), ("rating_min", self.rating_min)):
             if value is not None:
                 if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:

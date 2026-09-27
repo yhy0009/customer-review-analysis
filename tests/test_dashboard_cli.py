@@ -119,7 +119,7 @@ class DashboardCliTests(unittest.TestCase):
         document = DashboardHTML(text)
         self.assertEqual(len(document.images), 1)
         self.assertEqual(base64.b64decode(document.images[0].split(',', 1)[1], validate=True), image)
-        self.assertIn('제품: 이어 (부분 일치)', text)
+        self.assertIn('대상: 이어 (부분 일치)', text)
         self.assertIn('2026-09-22', text)
         self.assertNotIn(str(self.root), text)
         self.assertFalse(any(tag in ('script', 'link') for tag, _ in document.elements))

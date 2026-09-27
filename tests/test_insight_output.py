@@ -53,7 +53,7 @@ class InsightOutputTests(unittest.TestCase):
         result = format_insight_result(insight_fixture(filters=filters))
 
         for expected in ("감정=부정", "기간=2026-09-01 ~ 2026-09-14",
-                         "제품명 포함=이어폰 🎧", "최소 별점=2/5"):
+                         "대상명 포함=이어폰 🎧", "최소 별점=2/5"):
             self.assertIn(expected, result)
 
     def test_open_ended_dates_exact_rating_and_other_sentiments(self):
@@ -76,7 +76,7 @@ class InsightOutputTests(unittest.TestCase):
         result = format_insight_result(insight)
 
         self.assertIn("실제 추출 대상: 분석 완료 리뷰 0건", result)
-        self.assertIn("제품명 포함=없는 제품", result)
+        self.assertIn("대상명 포함=없는 제품", result)
         self.assertIn("조건에 맞는 분석 완료 리뷰가 없어 AI 요약을 생성하지 않았습니다.", result)
         self.assertNotIn(insight.summary, result)
         self.assertNotIn(insight.issues[0], result)
@@ -111,7 +111,7 @@ class InsightOutputTests(unittest.TestCase):
 
         result = format_insight_result(insight)
 
-        for expected in ("제품명 포함=제품 🎧", "음질 만족 👩‍💻: 2건", "배터리: 1건",
+        for expected in ("대상명 포함=제품 🎧", "음질 만족 👩‍💻: 2건", "배터리: 1건",
                          "요약:\n  한글\n  링크 🎧", "  - 잡음 발생", "  - 개선 검토 👩‍💻"):
             self.assertIn(expected, result)
         for unexpected in ("\x1b", "\x00", "\x07", "\x08", "\x7f", "\x9b", "\x9c", "\x9d",

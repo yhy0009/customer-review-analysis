@@ -33,7 +33,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertNotIn("reason", body)
         self.assertNotIn("category", body)
         if "sentiment" in schema["properties"]:
-            self.assertEqual(set(body), {"product_name", "review_text", "rating"})
+            self.assertEqual(set(body), {"product_name", "review_domain", "review_text", "rating"})
             # Synthetic provider uses the frozen fixture as its oracle in tests only.
             expected = next(c["expected"] for c in self.dataset["cases"] if c["review_text"] == body["review_text"])
             response = {"sentiment": expected, "confidence": .8, "keywords": ["음질"], "summary": "테스트 요약"}
@@ -49,6 +49,21 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(sum(c["expected"] == label for c in self.dataset["cases"]), 6)
         self.assertEqual(len(self.dataset["sha256"]), 64)
         self.assertIn("sarcasm", {c["category"] for c in self.dataset["cases"]})
+
+    def test_review_without_title_or_rating_can_be_evaluated(self):
+        data = json.loads(DATASET.read_text())
+        data["cases"] = [data["cases"][0]]
+        data["cases"][0].update(category="movie", product_name=None, rating=None)
+        path = self.root / "without_metadata.json"
+        path.write_text(json.dumps(data, ensure_ascii=False))
+        self.assertIsNone(load_dataset(path)["cases"][0]["rating"])
+        self.provider.complete.side_effect = self.fake_complete
+        result = run_evaluation(path, self.root / "run", self.options, provider=self.provider)
+        self.assertEqual(result["metrics"]["valid"], 1)
+        self.assertEqual(result["rows"][0]["status"], "ok")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["errors"], [{"stage": "insight", "type": "ValidationError"}])
+        self.assertEqual(self.provider.complete.call_count, 1)
 
     def test_metrics_include_errors_and_unattempted_in_overall_denominator(self):
         rows = [dict(expected="positive", predicted="positive", status="ok"),

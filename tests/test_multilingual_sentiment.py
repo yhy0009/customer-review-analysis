@@ -43,11 +43,12 @@ class MultilingualSentimentTests(unittest.TestCase):
                 messages, schema, _ = self.provider.complete.call_args.args
                 self.assertEqual([message['role'] for message in messages], ['system', 'user'])
                 self.assertEqual(json.loads(messages[1]['content']), {
-                    'product_name': case['product_name'], 'rating': case['rating'], 'review_text': case['review_text'],
+                    'product_name': case['product_name'], 'review_domain': 'product',
+                    'rating': case['rating'], 'review_text': case['review_text'],
                 })
                 self.assertNotIn(review.review_text, messages[0]['content'])
                 self.assertEqual(set(schema['properties']), {'sentiment', 'confidence', 'summary', 'keywords'})
-                self.assertEqual(result.prompt_version, 'review-sentiment-v2-multilingual')
+                self.assertEqual(result.prompt_version, 'review-sentiment-v4-summary-status')
                 self.assertEqual(result.keywords, ['음질', '연결'])
                 self.assertEqual(review.review_text, case['review_text'])
 

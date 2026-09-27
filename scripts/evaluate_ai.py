@@ -1,4 +1,4 @@
-"""Evaluate fixed synthetic reviews; --live permits at most N+101 requests (100 evidence batches + summary), no retries."""
+"""Evaluate fixed reviews; --live permits at most N+101 requests (100 evidence batches + summary), no retries."""
 
 import argparse
 from collections import Counter

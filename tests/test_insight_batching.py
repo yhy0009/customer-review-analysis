@@ -183,7 +183,8 @@ class BatchingTests(unittest.TestCase):
         result = AIInsightExtractor(self.options, self.provider, batch_size=1).extract_insights(
             [detail(i, Sentiment.NEGATIVE, product_name=str(i), review_text="<img> 배송 지연") for i in range(1, 6)],
             ReviewFilter())
-        self.assertEqual(len(result.issues), 3)
+        self.assertEqual(len(result.issues), 1)
+        self.assertIn("배송 지연", result.issues[0])
         self.assertEqual(len(result.evidence_groups), 5)
         console = format_insight_result(result)
         self.assertIn("근거 주제 5", console)

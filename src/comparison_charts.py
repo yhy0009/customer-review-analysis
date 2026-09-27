@@ -33,7 +33,7 @@ def render_comparison_charts(
             groups = result.groups[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
             fig, axes = plt.subplots(1, 3, figsize=(16, max(4.8, len(groups) * .58 + 2.5)), sharey=True)
             try:
-                dimension = "제품" if request.group_by == "product" else "카테고리"
+                dimension = "대상" if request.group_by == "product" else "카테고리"
                 fig.suptitle(f"{dimension}별 리뷰 비교 ({page + 1}/{pages})", fontsize=18, fontweight="bold")
                 labels = []
                 for group in groups:

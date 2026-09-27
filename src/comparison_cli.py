@@ -14,9 +14,9 @@ from src.models import ReviewFilter
 
 
 def add_comparison_parser(subparsers) -> None:
-    parser = subparsers.add_parser("compare", help="제품·카테고리별 리뷰 통계 비교")
+    parser = subparsers.add_parser("compare", help="대상·카테고리별 리뷰 통계 비교")
     parser.add_argument("--group-by", choices=("product", "category"), default="product", help="비교 기준 (기본: product)")
-    parser.add_argument("--name", action="append", default=[], help="비교할 제품/카테고리 이름, 정규화 후 정확히 일치. 여러 번 지정 가능")
+    parser.add_argument("--name", action="append", default=[], help="비교할 대상/카테고리 이름, 정규화 후 정확히 일치. 여러 번 지정 가능")
     parser.add_argument("--category", help="특정 카테고리의 리뷰만 비교 (정확히 일치)")
     parser.add_argument("--date-from", type=date.fromisoformat, help="리뷰 작성 시작일 YYYY-MM-DD (포함)")
     parser.add_argument("--date-to", type=date.fromisoformat, help="리뷰 작성 종료일 YYYY-MM-DD (포함)")
