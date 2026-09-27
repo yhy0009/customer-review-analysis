@@ -65,7 +65,7 @@ def format_review_list(page: Page[ReviewDetail]) -> str:
             "",
             f"ID {review.id} | {review.review_date.isoformat() if review.review_date else '날짜 없음'}"
             f" | 별점 {str(review.rating) + '/5' if review.rating is not None else 'N/A'}"
-            f" | {_single_line(review.product_name or '제품명 없음', 40)}",
+            f" | {_single_line(review.product_name or '대상명 없음', 40)}",
         ])
         if detail.analysis is None:
             lines.append("  분석 결과 없음")
@@ -85,7 +85,8 @@ def format_review_detail(detail: ReviewDetail) -> str:
     lines = [
         f"리뷰 ID: {review.id}",
         f"원본 리뷰 ID: {_single_line(review.source_review_id) if review.source_review_id else '없음'}",
-        f"제품명: {_single_line(review.product_name or '제품명 없음')}",
+        f"리뷰 유형: {'영화' if review.review_domain.value == 'movie' else '제품'}",
+        f"대상명: {_single_line(review.product_name or '대상명 없음')}",
         f"작성일: {review.review_date.isoformat() if review.review_date else '날짜 없음'}",
         f"별점: {str(review.rating) + '/5' if review.rating is not None else 'N/A'}",
         f"정제 시각 (UTC): {_utc_text(review.cleaned_at)}",
@@ -104,7 +105,7 @@ def format_review_detail(detail: ReviewDetail) -> str:
             f"감정: {_SENTIMENT_LABELS[analysis.sentiment]}",
             f"신뢰도: {analysis.confidence:.1%}",
             "요약:",
-            _safe_text(analysis.summary) if analysis.summary else "없음",
+            _safe_text(analysis.summary) if analysis.summary else analysis.summary_status.label,
             "키워드: " + (
                 ", ".join(_single_line(keyword) for keyword in analysis.keywords)
                 if analysis.keywords else "없음"
@@ -160,7 +161,9 @@ def format_insight_result(result: InsightResult) -> str:
         end = filters.date_to.isoformat() if filters.date_to else "종료 제한 없음"
         conditions.append(f"기간={start} ~ {end}")
     if filters.product_name is not None:
-        conditions.append(f"제품명 포함={_single_line(filters.product_name) or '이름 없음'}")
+        conditions.append(f"대상명 {'일치' if filters.target_match == 'exact' else '포함'}={_single_line(filters.product_name) or '이름 없음'}")
+    if filters.review_domain is not None:
+        conditions.append(f"리뷰 유형={filters.review_domain.value}")
     if filters.rating is not None:
         conditions.append(f"별점={filters.rating}/5")
     if filters.rating_min is not None:
@@ -183,7 +186,7 @@ def format_insight_result(result: InsightResult) -> str:
         lines.append("전체 인사이트 근거:")
         for number, group in enumerate(result.evidence_groups, 1):
             kind = "불편" if group.kind == "complaints" else "장점"
-            lines.append(f"  근거 주제 {number}: {_single_line(group.product_name or '제품명 없음')} / {kind} / "
+            lines.append(f"  근거 주제 {number}: {_single_line(group.product_name or '대상명 없음')} / {kind} / "
                          f"{_single_line(group.label)} ({group.review_count}건)")
             for citation in group.citations:
                 lines.append(f"    리뷰 {citation.review_id}: {_single_line(citation.label)} — {_single_line(citation.quote)}")
@@ -260,5 +263,5 @@ def format_dashboard_result(result: DashboardResult) -> str:
         }.get(result.insight_status, "사용할 수 있는 결과가 없습니다.")
         lines.extend(["", "AI 인사이트 미포함: " + reason])
         if result.insight_status != "disabled":
-            lines.append("같은 제품·기간 조건으로 extract를 실행한 뒤 dashboard를 다시 생성하세요.")
+            lines.append("같은 대상·기간 조건으로 extract를 실행한 뒤 dashboard를 다시 생성하세요.")
     return "\n".join(lines)

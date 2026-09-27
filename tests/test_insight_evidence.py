@@ -106,7 +106,8 @@ class EvidenceTests(unittest.TestCase):
         provider.complete.return_value = ProviderResponse(json.dumps({"reviews": [self.evidence[0]]}), "fake")
         options = AnalysisOptions(provider="fake", model="fake", timeout_seconds=5, max_retries=0)
         review = detail(1, Sentiment.NEGATIVE, review_text=self.reviews[0]["review_text"])
-        body = {"review_count": 1, "positive_keywords": [], "negative_keywords": [], "reviews": [
+        body = {"review_domain": "product", "review_count": 1,
+                "positive_keywords": [], "negative_keywords": [], "reviews": [
             {"product_name": review.review.product_name, "rating": review.review.rating,
              "review_text": review.review.review_text, "sentiment": "negative"}]}
         budget = len(json.dumps(body, ensure_ascii=False))

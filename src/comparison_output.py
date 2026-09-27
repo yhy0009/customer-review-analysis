@@ -47,7 +47,7 @@ def _percent(value: float | None) -> str:
 
 
 def format_comparison(result: ComparisonResult, request: ComparisonRequest) -> str:
-    dimension = "제품" if request.group_by == "product" else "카테고리"
+    dimension = "대상" if request.group_by == "product" else "카테고리"
     total = sum(group.statistics.total_reviews for group in result.groups)
     lines = [f"{dimension}별 비교: {len(result.groups)}개 그룹 / 정제 리뷰 {total}건",
              f"기간: {request.filters.date_from or '전체'} ~ {request.filters.date_to or '전체'}",
@@ -59,7 +59,7 @@ def format_comparison(result: ComparisonResult, request: ComparisonRequest) -> s
     if not result.groups:
         lines.append("조건에 맞는 정제 리뷰가 없습니다. import·clean 및 조회 조건을 확인하세요.")
     else:
-        lines.append("이름 | 제품 수 | 리뷰 수 | 분석 | 미분석 | 실패 | 평균 별점 | 완료율 | 긍정 | 중립 | 부정 | 표본")
+        lines.append("이름 | 대상 수 | 리뷰 수 | 분석 | 미분석 | 실패 | 평균 별점 | 완료율 | 긍정 | 중립 | 부정 | 표본")
         for group in result.groups:
             row = group_record(group, request.min_reviews)
             rating = f"{row['average_rating']:.2f}" if row['average_rating'] is not None else "N/A"
@@ -73,7 +73,7 @@ def format_comparison(result: ComparisonResult, request: ComparisonRequest) -> s
                 *(_percent(row[sentiment.value + '_ratio']) for sentiment in Sentiment), sample,
             ]))
         if len(result.groups) < 2:
-            lines.append("비교 대상이 1개입니다. 다른 제품·카테고리 또는 기간을 포함하세요.")
+            lines.append("비교 대상이 1개입니다. 다른 대상·카테고리 또는 기간을 포함하세요.")
         lines.append(f"표본 안내: 분석 {request.min_reviews}건 미만은 참고용입니다. 통계적 유의성을 판정하지 않습니다.")
     if result.missing_names:
         lines.append("현재 조건에 없는 이름: " + ", ".join(display_name(name) for name in result.missing_names))

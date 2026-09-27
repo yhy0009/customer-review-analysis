@@ -86,7 +86,7 @@ class HtmlDashboardTests(unittest.TestCase):
                 InsightEvidenceGroup(malicious, 'praises', malicious, [InsightCitation(7, malicious, malicious)])])
         document = DashboardHTML(self.render(insight=insight))
         text = ' '.join(document.text)
-        for value in (malicious, '제품명 없음', '리뷰 7', '분석 완료 리뷰 1건', '부정', '개선 제안',
+        for value in (malicious, '대상명 없음', '리뷰 7', '분석 완료 리뷰 1건', '부정', '개선 제안',
                       '2026-09-22T01:02:03Z', '대상 범위는 서로 다를 수 있습니다'):
             self.assertIn(value, text)
         self.assertEqual(len(document.images), 1)

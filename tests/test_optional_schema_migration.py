@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from src.errors import StorageError
 from src.models import CleanReview, DuplicatePolicy, RawReview
-from src.sqlite_repository import SQLiteReviewRepository
+from src.sqlite_repository import SQLiteReviewRepository, _SCHEMA_COLUMNS
 
 
 class OptionalSchemaMigrationTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class OptionalSchemaMigrationTests(unittest.TestCase):
 
     def rows(self):
         with sqlite3.connect(self.path) as connection:
-            return {table: connection.execute(f'SELECT * FROM {table} ORDER BY 1').fetchall()
+            return {table: connection.execute(f'SELECT {_SCHEMA_COLUMNS[table]} FROM {table} ORDER BY 1').fetchall()
                     for table in ('raw_reviews', 'clean_reviews', 'analysis_results')}
 
     def test_upgrade_preserves_all_rows_and_foreign_keys_and_custom_objects(self):
@@ -48,7 +48,7 @@ class OptionalSchemaMigrationTests(unittest.TestCase):
             self.assertEqual(repository._connection.execute('PRAGMA foreign_keys').fetchone()[0], 1)
         self.assertEqual(self.rows(), before)
         with sqlite3.connect(self.path) as connection:
-            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 2)
+            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 3)
             self.assertEqual(connection.execute('PRAGMA foreign_key_check').fetchall(), [])
             self.assertEqual({row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE name IN ('custom_clean_date','guard_text')")},
                              {'custom_clean_date', 'guard_text'})

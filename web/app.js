@@ -101,12 +101,12 @@ function renderInsights(data) {
   const groups = insight.evidence_groups || [];
   const heading = el("div", "panel-heading");
   heading.append(el("h2", "", "전체 원문 근거"), el("span", "tag", `${number(groups.length)}개 주제`));
-  evidencePanel.append(heading, el("p", "evidence-help", "제품별 주제를 펼쳐 인용을 확인하세요. 리뷰 번호를 선택하면 전체 원문을 볼 수 있습니다."));
+  evidencePanel.append(heading, el("p", "evidence-help", "대상별 주제를 펼쳐 인용을 확인하세요. 리뷰 번호를 선택하면 전체 원문을 볼 수 있습니다."));
   groups.forEach((group, index) => {
     const details = el("details", "evidence-group");
     const trigger = el("summary");
     const description = el("div", "evidence-description");
-    description.append(el("span", "evidence-product", group.product_name ?? "제품명 없음"), el("strong", "", group.label));
+    description.append(el("span", "evidence-product", group.product_name ?? "대상명 없음"), el("strong", "", group.label));
     trigger.append(el("span", "evidence-index", String(index + 1).padStart(2, "0")), description,
       el("span", `finding-kind ${group.kind}`, group.kind === "complaints" ? "불편" : "장점"),
       el("span", "evidence-count", `${new Set(group.citations.map(c => c.review_id)).size}건`), el("span", "chevron", "+"));
@@ -129,7 +129,7 @@ function renderReviews(data) {
   for (const review of page.items) {
     const tr = el("tr");
     const product = el("td", "product-cell");
-    product.append(el("strong", "", review.product_name ?? "제품명 없음"), el("small", "", review.review_date ?? "날짜 없음"));
+    product.append(el("strong", "", review.product_name ?? "대상명 없음"), el("small", "", review.review_date ?? "날짜 없음"));
     const text = el("td", "review-text-cell"); text.append(el("p", "review-excerpt", review.review_text));
     const rating = el("td", "rating-cell", review.rating == null ? "N/A" : `★ ${review.rating}`);
     const sentiment = el("td"); sentiment.append(badge(review.analysis?.sentiment));
@@ -287,11 +287,11 @@ async function openReview(id) {
     if (request !== state.reviewRequest || state.snapshot !== snapshot || !dialog.open) return;
     $("#review-title").textContent = `리뷰 #${review.id}`;
     const content = $("#review-detail"); content.replaceChildren();
-    content.append(el("h3", "", review.product_name ?? "제품명 없음"),
+    content.append(el("h3", "", review.product_name ?? "대상명 없음"),
       el("p", "muted", `${review.review_date ?? "날짜 없음"} · 별점 ${review.rating == null ? "N/A" : `${review.rating}/5`}`),
       badge(review.analysis?.sentiment), el("h3", "detail-label", "리뷰 원문"), el("p", "original-review", review.review_text));
     if (review.analysis) {
-      content.append(el("h3", "detail-label", "저장된 분석"), el("p", "", review.analysis.summary || "저장된 개별 요약이 없습니다."),
+      content.append(el("h3", "detail-label", "저장된 분석"), el("p", "", review.analysis.summary || review.analysis.summary_status_label || "요약 없음: 이전 결과에 사유가 기록되지 않음"),
         el("p", "muted", `모델 ${review.analysis.model} · 분석 ${dateTime(review.analysis.analyzed_at)}`),
         el("p", "scope-note", `모델 자기평가 신뢰도 ${percent(review.analysis.confidence)} · 검증된 정답 확률이 아닙니다.`));
       const keywords = el("div", "keyword-list");
@@ -305,7 +305,8 @@ async function openReview(id) {
 
 function syncFilterForm() {
   const form = $("#filters");
-  for (const key of ["product_name", "date_from", "date_to", "sentiment"]) form.elements.namedItem(key).value = state.filters[key] || "";
+  for (const key of ["product_name", "date_from", "date_to", "sentiment", "review_domain", "target_match"]) form.elements.namedItem(key).value = state.filters[key] || "";
+  if (state.filters.target_match === "contains") form.elements.namedItem("target_match").value = "";
   form.elements.namedItem("rating_filter").value = ratingSelection(state.filters);
 }
 function applyQuery(filters, page = 1, replace = false) {

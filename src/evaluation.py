@@ -16,7 +16,7 @@ from src.insight_service import InsightService
 from src.insight_evidence import parse_evidence
 from src.models import (
     AnalysisOptions, AnalyzeRequest, AnalyzeTarget, CleanReview, DuplicatePolicy,
-    ExtractRequest, RawReview, ReportFormat, ReviewFilter, Sentiment,
+    ExtractRequest, RawReview, ReportFormat, ReviewDomain, ReviewFilter, Sentiment,
 )
 from src.reporter import FileReportGenerator
 from src.storage import SQLiteReviewRepository
@@ -57,13 +57,19 @@ def load_dataset(path: Path) -> dict:
                 raise ValueError
             if "language" in case and case["language"] not in ("ko", "en", "mixed"):
                 raise ValueError
-            for field in ("id", "category", "product_name", "review_text", "reason"):
+            for field in ("id", "category", "review_text", "reason"):
                 if not isinstance(case[field], str) or not case[field].strip():
                     raise ValueError
+            if case["product_name"] is not None and (
+                not isinstance(case["product_name"], str) or not case["product_name"].strip()
+            ):
+                raise ValueError
             if case["id"] in ids or case["expected"] not in _LABELS:
                 raise ValueError
             ids.add(case["id"])
-            if type(case["rating"]) is not int or not 1 <= case["rating"] <= 5:
+            if case["rating"] is not None and (
+                type(case["rating"]) is not int or not 1 <= case["rating"] <= 5
+            ):
                 raise ValueError
         dataset["sha256"] = hashlib.sha256(raw).hexdigest()
         return dataset
@@ -141,8 +147,8 @@ class _MeasuredProvider:
                     entry["evidence_valid"] = True
                 except AIProviderError:
                     entry["evidence_valid"] = False
-                    # Evaluation uses synthetic fixtures. Preserve rejected model
-                    # evidence for diagnosis, never transport exception bodies.
+                    # Preserve rejected model evidence for local diagnosis, never
+                    # transport exception bodies that might contain private data.
                     rejected = response.content
                     if options.api_key:
                         rejected = rejected.replace(options.api_key, "[redacted]")
@@ -157,7 +163,7 @@ def run_evaluation(
     dataset_path: Path, output: Path, options: AnalysisOptions, *,
     provider: AnalysisProvider | None = None, progress: Callable[[str], None] = lambda message: None,
 ) -> dict:
-    """Create an exclusive run directory; persist only synthetic fixtures and safe metadata.
+    """Create an exclusive run directory for a review evaluation.
 
     At most N+101 provider calls: retries are disabled and skip verification makes no calls.
     Output directory must not exist, protecting both prior runs and application DBs.
@@ -192,11 +198,14 @@ def run_evaluation(
         with SQLiteReviewRepository(output / "reviews.sqlite") as repository:
             now = datetime.now(timezone.utc)
             repository.save_raw_reviews([RawReview(source_review_id=c["id"], product_name=c["product_name"],
-                rating=c["rating"], review_text=c["review_text"], review_date="2026-09-01")
+                rating=c["rating"], review_text=c["review_text"], review_date="2026-09-01",
+                raw_payload={"review_domain": "movie" if c["category"] == "movie" else "product"})
                 for c in rows], DuplicatePolicy.SKIP)
             repository.save_clean_reviews([CleanReview(id=i, source_review_id=c["id"],
                 product_name=c["product_name"], rating=c["rating"], review_text=c["review_text"],
-                review_date=date(2026, 9, 1), cleaned_at=now) for i, c in enumerate(rows, 1)], DuplicatePolicy.SKIP)
+                review_date=date(2026, 9, 1), cleaned_at=now,
+                review_domain=ReviewDomain.MOVIE if c["category"] == "movie" else ReviewDomain.PRODUCT)
+                for i, c in enumerate(rows, 1)], DuplicatePolicy.SKIP)
             analyzer = BatchReviewAnalyzer(repository, measured)
             service = AnalysisService(repository, analyzer, options)
             for i, row in enumerate(rows, 1):
@@ -207,6 +216,7 @@ def run_evaluation(
                 if detail.analysis is not None:
                     analysis = detail.analysis
                     row.update(predicted=analysis.sentiment.value, summary=analysis.summary,
+                               summary_status=analysis.summary_status.value,
                                keywords=analysis.keywords, confidence=analysis.confidence, model=analysis.model)
                 progress(f"분석 {i}/{len(rows)}: {row['status']}")
                 _save(checkpoint, result)
@@ -224,8 +234,8 @@ def run_evaluation(
                 try:
                     insight = InsightService(repository, AIInsightExtractor(options, measured),
                         snapshot=repository.read_snapshot).extract_insights(ExtractRequest(ReviewFilter()))
-                except AIProviderError:
-                    result["errors"].append({"stage": "insight", "type": "AIProviderError"})
+                except (AIProviderError, ValidationError) as exc:
+                    result["errors"].append({"stage": "insight", "type": type(exc).__name__})
             result["checks"]["insight_generated"] = insight is not None
             result["checks"]["same_scope_keyword_counts"] = insight is not None and (
                 insight.review_count == stats.analyzed_reviews and insight.positive_keywords == stats.top_positive_keywords

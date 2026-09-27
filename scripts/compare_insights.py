@@ -17,7 +17,7 @@ from src.evaluation import _MeasuredProvider, _save, _unique_object, load_datase
 from src.insight_extractor import AIInsightExtractor, INSIGHT_SCHEMA, PROMPT_VERSION, SYSTEM_PROMPT, _keywords, _parse_response
 from src.insight_evidence import EVIDENCE_PROMPT
 from src.insight_batching import COMPACT_PROMPT
-from src.models import AnalysisOptions, AnalysisResult, CleanReview, InsightResult, ReviewDetail, ReviewFilter, Sentiment
+from src.models import AnalysisOptions, AnalysisResult, CleanReview, InsightResult, ReviewDetail, ReviewDomain, ReviewFilter, Sentiment
 
 
 ARCHIVED_PROMPT = Path(__file__).resolve().parents[1] / "evaluation/prompts/review-insights-v2.txt"
@@ -46,7 +46,8 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
                 raise ValueError
             details.append(ReviewDetail(
                 CleanReview(id=i, product_name=case["product_name"], rating=case["rating"],
-                            review_text=case["review_text"], review_date=date(2026, 9, 1), cleaned_at=now),
+                            review_text=case["review_text"], review_date=date(2026, 9, 1), cleaned_at=now,
+                            review_domain=ReviewDomain.MOVIE if case["category"] == "movie" else ReviewDomain.PRODUCT),
                 AnalysisResult(review_id=i, sentiment=Sentiment(row["predicted"]),
                                confidence=row["confidence"], keywords=row["keywords"],
                                analyzed_at=now, provider=saved["provider"], model=row["model"]),
@@ -65,6 +66,10 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
         raise ValidationError("고정 데이터와 일치하는 성공한 평가 결과가 필요합니다.") from None
     options = replace(options, max_retries=0, prompt_version=None)
     measured = _MeasuredProvider(provider if provider is not None else provider_for(options, max_completion_tokens=8192))
+    domains = {detail.review.review_domain for detail in details}
+    if len(domains) != 1:
+        raise ValidationError("비교할 리뷰는 하나의 도메인이어야 합니다.")
+    domain = next(iter(domains))
     output.mkdir(parents=True, exist_ok=False)
     result = {"dataset_sha256": dataset["sha256"], "source_sha256": hashlib.sha256(raw).hexdigest(),
               "case_ids": selected_ids,
@@ -73,7 +78,7 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
               "timeout_seconds": options.timeout_seconds, "reasoning_effort": options.reasoning_effort,
               "started_at": now.isoformat(), "narrative_review": "pending", "runs": [],
               "calls": measured.calls}
-    source_input = json.dumps({"review_count": len(details),
+    source_input = json.dumps({"review_domain": domain.value, "review_count": len(details),
         "positive_keywords": [asdict(k) for k in _keywords(details, Sentiment.POSITIVE)],
         "negative_keywords": [asdict(k) for k in _keywords(details, Sentiment.NEGATIVE)],
         "reviews": [{"product_name": d.review.product_name, "rating": d.review.rating,
@@ -102,11 +107,7 @@ def compare(dataset_path, saved_path, output, options, *, provider=None, case_id
             else:
                 positive = _keywords(details, Sentiment.POSITIVE)
                 negative = _keywords(details, Sentiment.NEGATIVE)
-                content = json.dumps({"review_count": len(details),
-                    "positive_keywords": [asdict(k) for k in positive],
-                    "negative_keywords": [asdict(k) for k in negative],
-                    "reviews": [{"product_name": d.review.product_name, "rating": d.review.rating,
-                        "review_text": d.review.review_text, "sentiment": d.analysis.sentiment.value} for d in details]}, ensure_ascii=False)
+                content = source_input
                 response = ReplayProvider().complete([{"role": "system", "content": prompt},
                     {"role": "user", "content": content}], INSIGHT_SCHEMA, options)
                 insight = InsightResult(ReviewFilter(), len(details), datetime.now(timezone.utc),

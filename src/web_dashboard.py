@@ -15,7 +15,7 @@ from src.errors import ValidationError
 from src.insight_provenance import public_profile, validate_profile
 from src.models import (
     InsightCitation, InsightEvidenceGroup, InsightResult, KeywordCount, ReviewFilter,
-    ReviewQuery, Sentiment, SortField, SortOrder,
+    ReviewQuery, ReviewDomain, Sentiment, SortField, SortOrder,
 )
 from src.sqlite_repository import SQLiteReviewRepository
 
@@ -54,7 +54,7 @@ def encode(value):
 
 
 def filters_from_dict(values):
-    if set(values) - {"product_name", "date_from", "date_to", "sentiment", "rating", "rating_min"}:
+    if set(values) - {"product_name", "date_from", "date_to", "sentiment", "rating", "rating_min", "review_domain", "target_match"}:
         raise ValidationError("지원하지 않는 필터입니다.")
     try:
         values = {k: v for k, v in values.items() if v not in (None, "")}
@@ -63,6 +63,8 @@ def filters_from_dict(values):
         for name in ("date_from", "date_to"):
             if name in values:
                 values[name] = date.fromisoformat(values[name])
+        if "review_domain" in values:
+            values["review_domain"] = ReviewDomain(values["review_domain"])
         if "sentiment" in values:
             values["sentiment"] = Sentiment(values["sentiment"])
         for name in ("rating", "rating_min"):
@@ -168,11 +170,14 @@ def load_insight_artifact(path):
 def public_review(detail):
     review, analysis = detail.review, detail.analysis
     return {"id": review.id, "product_name": review.product_name,
+            "review_domain": review.review_domain.value,
             "review_date": review.review_date.isoformat() if review.review_date is not None else None,
             "rating": review.rating, "review_text": review.review_text,
             "analysis": None if analysis is None else {
                 "sentiment": analysis.sentiment.value, "confidence": analysis.confidence,
                 "summary": analysis.summary, "keywords": analysis.keywords,
+                "summary_status": analysis.summary_status.value,
+                "summary_status_label": analysis.summary_status.label,
                 "model": analysis.model, "analyzed_at": analysis.analyzed_at.isoformat()}}
 
 

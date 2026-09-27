@@ -169,7 +169,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_sentiment_filter(extract_parser)
     _add_period_filters(extract_parser)
-    extract_parser.add_argument("--product", help="제품명 필터")
+    extract_parser.add_argument("--product", "--target", dest="product", help="리뷰 대상 이름 필터")
+    extract_parser.add_argument("--domain", choices=("product", "movie"), help="리뷰 유형")
+    extract_parser.add_argument("--exact-target", action="store_true", help="대상 이름 전체 일치 (--target 필요, 대소문자 무시)")
     extract_parser.add_argument(
         "--limit",
         type=_positive_int,
@@ -184,7 +186,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_sentiment_filter(list_parser)
     _add_period_filters(list_parser)
     list_parser.add_argument("--rating", type=_rating, help="별점 필터(1-5)")
-    list_parser.add_argument("--product", help="제품명 필터")
+    list_parser.add_argument("--product", "--target", dest="product", help="리뷰 대상 이름 필터")
+    list_parser.add_argument("--domain", choices=("product", "movie"), help="리뷰 유형")
+    list_parser.add_argument("--exact-target", action="store_true", help="대상 이름 전체 일치 (--target 필요, 대소문자 무시)")
     list_parser.add_argument("--page", type=_positive_int, default=1, help="페이지 번호")
     list_parser.add_argument(
         "--size",
@@ -225,7 +229,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_sentiment_filter(stats_parser)
     _add_period_filters(stats_parser)
-    stats_parser.add_argument("--product", help="제품명 필터")
+    stats_parser.add_argument("--product", "--target", dest="product", help="리뷰 대상 이름 필터")
+    stats_parser.add_argument("--domain", choices=("product", "movie"), help="리뷰 유형")
+    stats_parser.add_argument("--exact-target", action="store_true", help="대상 이름 전체 일치 (--target 필요, 대소문자 무시)")
 
     dashboard_parser = subparsers.add_parser(
         "dashboard",
@@ -233,7 +239,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="감정 분포, 시간별 추이, 별점별 감정 분포 차트를 생성합니다.",
     )
     _add_period_filters(dashboard_parser)
-    dashboard_parser.add_argument("--product", help="제품명 필터")
+    dashboard_parser.add_argument("--product", "--target", dest="product", help="리뷰 대상 이름 필터")
+    dashboard_parser.add_argument("--domain", choices=("product", "movie"), help="리뷰 유형")
+    dashboard_parser.add_argument("--exact-target", action="store_true", help="대상 이름 전체 일치 (--target 필요, 대소문자 무시)")
     insight_source = dashboard_parser.add_mutually_exclusive_group()
     insight_source.add_argument("--insight-file", type=Path, help="자동 선택 대신 포함할 extract 결과 JSON 파일")
     insight_source.add_argument("--no-insights", action="store_true", help="저장된 AI 인사이트 포함 생략")
@@ -297,7 +305,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=_rating,
         help="내보낼 리뷰의 최소 별점(1-5)",
     )
-    export_parser.add_argument("--product", help="제품명 필터")
+    export_parser.add_argument("--product", "--target", dest="product", help="리뷰 대상 이름 필터")
+    export_parser.add_argument("--domain", choices=("product", "movie"), help="리뷰 유형")
+    export_parser.add_argument("--exact-target", action="store_true", help="대상 이름 전체 일치 (--target 필요, 대소문자 무시)")
     export_parser.add_argument(
         "--force",
         action="store_true",

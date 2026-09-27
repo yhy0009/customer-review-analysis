@@ -46,11 +46,13 @@ Raw/Clean 독립 ID 발급, 작업 디렉터리 기준 경로, 버전 없는 스
 
 ## 기존 DB 처리
 
-기준 스키마는 `PRAGMA user_version = 2`다. Clean의 제품명·작성일·별점은 SQL NULL을 허용한다.
-등록된 v1 DB는 첫 쓰기 연결에서 한 트랜잭션으로 v2로 이전한다. Raw·Clean ID, 분석 결과,
+기준 스키마는 `PRAGMA user_version = 3`다. Clean의 제품명·작성일·별점은 SQL NULL을 허용한다.
+등록된 v1/v2 DB는 첫 쓰기 연결에서 한 트랜잭션으로 v3로 이전한다. v1의 선택 필드 제약을 해제하고, 분석 결과에 `summary_status` 열을 추가한다. Raw·Clean ID, 분석 결과,
 상태·오류·생성/수정 시각과 Clean의 추가 인덱스·트리거를 보존한다. 참조 무결성 검증이나
-이전 작업이 실패하면 v1 스키마와 데이터를 롤백하며 다시 시도할 수 있다.
-`read_only=True`는 v1/v2 모두 조회하며 스키마나 파일을 수정하지 않는다.
+이전 작업이 실패하면 기존 스키마와 데이터를 롤백하며 다시 시도할 수 있다.
+`read_only=True`는 v1/v2/v3 모두 조회하며 스키마나 파일을 수정하지 않는다.
+
+기존 분석의 NULL 요약 상태는 읽을 때 `legacy_unknown`으로 표시하며, 정상 요약은 `available`로 표시한다. 과거의 누락 사유는 추측하지 않는다.
 
 기존 `storage.py`가 만든 버전 0 DB에는 Clean의 별도 ID·`raw_id`·`dedupe_key`가 있다.
 Raw 필드 직렬화와 분석 메타데이터 컬럼도 v1과 다르다.
@@ -81,7 +83,7 @@ with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as connection:
 4. 원본 대비 건수·ID 대응·분석 결과·통계와 `PRAGMA integrity_check` 및
    `PRAGMA foreign_key_check`를 검증한 뒤 DB 경로를 전환한다.
 
-이번 통합은 자동 마이그레이션을 제공하지 않는다. 구형 스키마와 데이터가 초기화 거부 후에도
+버전 0의 별도 ID 구조에는 자동 마이그레이션을 제공하지 않는다. 구형 스키마와 데이터가 초기화 거부 후에도
 바이트 단위로 보존되는지는 테스트한다. 테스트용 구형 스키마는
 `tests/fixtures/sqlite_legacy_v0.sql`에 보관하며 새 DB 생성에는 사용하지 않는다.
 

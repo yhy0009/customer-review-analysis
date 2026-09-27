@@ -17,7 +17,7 @@ from src.insight_service import InsightService
 from src.models import (
     AnalysisOptions, AnalysisResult, CleanReview, DashboardRequest, DuplicatePolicy,
     ExtractRequest, InsightCitation, InsightEvidenceGroup, InsightResult, RawReview,
-    ReportFormat, ReviewFilter, Sentiment,
+    ReportFormat, ReviewFilter, Sentiment, SummaryStatus,
 )
 from src.sqlite_repository import SQLiteReviewRepository
 from src.web_dashboard import DashboardData, encode, load_insight_artifact, make_insight_artifact, select_analyzed
@@ -125,7 +125,7 @@ class CLIInsightStoreTests(unittest.TestCase):
     def test_same_count_analysis_and_original_changes_are_stale(self):
         path = self.save()
         analysis = self.repo.get_review(1).analysis
-        self.repo.save_analysis(replace(analysis, summary="다시 분석한 요약"))
+        self.repo.save_analysis(replace(analysis, summary="다시 분석한 요약", summary_status=SummaryStatus.AVAILABLE))
         self.assertEqual(self.store.load(self.repo, self.request())[1], "stale")
         with self.assertRaisesRegex(ValidationError, "변경"):
             self.store.load(self.repo, self.request(insight_file=path))
@@ -197,7 +197,7 @@ class CLIInsightStoreTests(unittest.TestCase):
         details, result = self.result()
         def extract(*args, **kwargs):
             with SQLiteReviewRepository(self.database) as writer:
-                writer.save_analysis(replace(details[0].analysis, summary="동시에 변경된 분석"))
+                writer.save_analysis(replace(details[0].analysis, summary="동시에 변경된 분석", summary_status=SummaryStatus.AVAILABLE))
             return result
         service = InsightService(self.repo, Mock(extract_insights=Mock(side_effect=extract)),
                                  snapshot=self.repo.read_snapshot, save_result=self.store.save)
@@ -209,7 +209,7 @@ class CLIInsightStoreTests(unittest.TestCase):
         self.repo._connection.execute("PRAGMA journal_mode=WAL")
         with SQLiteReviewRepository(self.database) as writer:
             def load(request):
-                writer.save_analysis(replace(self.repo.get_review(1).analysis, summary="동시 변경"))
+                writer.save_analysis(replace(self.repo.get_review(1).analysis, summary="동시 변경", summary_status=SummaryStatus.AVAILABLE))
                 result = self.store.load(self.repo, request)
                 self.assertEqual(result[1], "available")
                 return result

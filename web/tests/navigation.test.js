@@ -38,3 +38,13 @@ test('empty query and unknown parameters cannot introduce extra request fields',
     {filters: {rating: '3'}, page: 1});
   assert.deepEqual(readQuery('date_from=2024-02-29'), {filters: {date_from: '2024-02-29'}, page: 1});
 });
+
+test("domain and exact target survive URLs and reject ambiguous filter values", () => {
+  const filters = {product_name: "Film A", review_domain: "movie", target_match: "exact"};
+  assert.deepEqual(readQuery(queryString(filters)).filters, filters);
+  assert.deepEqual(formFilters({...filters, rating_filter: ""}), filters);
+  assert.throws(() => readQuery("review_domain=other"));
+  assert.throws(() => readQuery("target_match=exact"));
+  assert.throws(() => readQuery("target_match=unknown&product_name=A"));
+  assert.throws(() => readQuery("review_domain=movie&review_domain=product"));
+});

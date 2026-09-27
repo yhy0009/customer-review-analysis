@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 
 from src.models import (
     AnalysisResult, CleanReview, KeywordCount, Page, ReviewDetail,
-    ReviewStatistics, Sentiment,
+    ReviewStatistics, Sentiment, SummaryStatus,
 )
 from src.query_output import (
     format_review_detail, format_review_list, format_statistics,
@@ -87,13 +87,14 @@ class QueryOutputTests(unittest.TestCase):
         detail = detail_fixture()
         detail.review.source_review_id = None
         detail.analysis.summary = None
+        detail.analysis.summary_status = SummaryStatus.LEGACY_UNKNOWN
         detail.analysis.keywords = []
         detail.analysis.prompt_version = None
 
         result = format_review_detail(detail)
 
         self.assertIn("원본 리뷰 ID: 없음", result)
-        self.assertIn("요약:\n없음", result)
+        self.assertIn("요약:\n요약 없음: 이전 결과에 사유가 기록되지 않음", result)
         self.assertIn("키워드: 없음", result)
         self.assertNotIn("프롬프트 버전:", result)
 
