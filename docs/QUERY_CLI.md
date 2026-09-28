@@ -72,3 +72,7 @@ python -m unittest discover -s tests -q
 테스트는 임시 SQLite와 별도의 프로젝트 복사본을 사용한다. 실제 `main.py`를 다른
 작업 디렉터리에서 실행해 필터·정렬·페이지·상세·통계·오류와 설정 경로를 확인한다.
 조회 실행은 `python -S`로도 검증하므로 외부 AI SDK가 없어도 동작한다.
+
+## 제품·영화 범위
+
+`list`, `stats`는 `--domain product|movie`를 지원합니다. `--target`은 `--product`와 같은 이름 부분 일치 검색이며 `--exact-target`을 함께 지정하면 대소문자를 무시한 이름 전체 일치로 제한합니다. `show`에는 리뷰 유형과 요약이 제외된 이유가 표시됩니다. [사용 예와 요약 상태](MOVIE_REVIEWS.md)를 참고하세요.

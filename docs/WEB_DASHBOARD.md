@@ -31,7 +31,7 @@ python scripts/serve_dashboard.py --database data/app_database.db
 
 실제 모드는 기존 표준 스키마 DB를 읽기 전용으로 연다. 상대 경로는 저장소 루트 기준이다.
 DB를 지정하지 않으면 `data/app_database.db`를 사용한다. 조회 전용 실행은 `.env`나 config를 읽지 않는다.
-파일이 없거나 구형 스키마면 시작에 실패한다. 빈 DB 생성·자동 마이그레이션은 하지 않는다.
+파일이 없거나 지원하지 않는 스키마면 시작에 실패한다. 등록된 v1/v2/v3는 읽기 전용 조회가 가능하다. 빈 DB 생성·자동 마이그레이션은 하지 않는다.
 인사이트 파일 없이도 통계·차트·리뷰·통계 리포트는 이용할 수 있다.
 
 ## 리뷰 파일 다운로드
@@ -193,7 +193,7 @@ Host/Origin을 로컬 주소로 제한하고 정적 파일 5개만 제공한다.
 | `/api/review/{snapshot_id}/{id}` | 해당 페이지 또는 인사이트에 포함된 리뷰 상세 |
 | `/api/export/{snapshot_id}/csv` 또는 `/jsonl` | 같은 조회 시점·필터의 전체 정제 리뷰와 저장된 분석 결과 |
 
-snapshot 쿼리는 `product_name`(부분 일치), `date_from`, `date_to`(YYYY-MM-DD),
+snapshot 쿼리는 `review_domain`(`product`/`movie`), `target_match`(`contains` 기본/`exact`), `product_name`(기본 부분 일치, `exact`이면 대소문자를 무시한 전체 일치), `date_from`, `date_to`(YYYY-MM-DD),
 `sentiment`(positive/neutral/negative), `rating`, `rating_min`, `page`를 지원한다.
 UI는 제품·기간·감정·별점 필터를 제공한다. 별점은 정확한 점수(1~5점) 또는 최소 점수
 (1~5점 이상)를 하나만 선택한다. 같은 조건이 통계·차트·리뷰·인사이트·리포트에 적용된다.
@@ -234,8 +234,8 @@ snapshot JSON의 최상위 필드는 다음과 같다.
 응답은 첨부 파일이며 임시 파일은 요청 종료 시 정리한다. 필터 추가는 400, 만료는 410,
 미지원 형식은 404다. 다운로드는 DB 쓰기나 AI 호출을 발생시키지 않는다.
 
-리뷰 JSON은 `id`, `product_name`, `review_date`, `rating`, `review_text`, `analysis`다.
-analysis는 null 또는 `sentiment`, `confidence`, `summary`, `keywords`, `model`,
+리뷰 JSON은 `id`, `product_name`, `review_domain`, `review_date`, `rating`, `review_text`, `analysis`다.
+analysis는 null 또는 `sentiment`, `confidence`, `summary`, `summary_status`, `summary_status_label`, `keywords`, `model`,
 `analyzed_at`이다. 별도의 분석 실패 원인이나 원본 파일 정보는 노출하지 않는다.
 
 생성된 결과는 15분, 최대 16개까지 메모리에 보관한다. 이 범위에서 DB가 변경되어도

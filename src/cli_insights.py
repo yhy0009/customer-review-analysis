@@ -86,7 +86,7 @@ class CLIInsightStore:
         status = "missing"
         reasons = {
             "invalid": "저장 파일 형식이나 원문 근거가 올바르지 않습니다.",
-            "scope_mismatch": "제품·기간·별점·감정 조건이 대시보드와 일치하지 않습니다.",
+            "scope_mismatch": "대상·기간·별점·감정 조건이 대시보드와 일치하지 않습니다.",
             "config_mismatch": "모델·프롬프트·AI 서버 설정이 변경됐습니다.",
             "stale": "추출 이후 리뷰 또는 분석 결과가 변경됐습니다.",
         }

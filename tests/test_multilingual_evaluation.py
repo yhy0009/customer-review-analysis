@@ -30,7 +30,7 @@ class MultilingualEvaluationTests(unittest.TestCase):
     def complete(self, messages, schema, options):
         body = json.loads(messages[1]['content'])
         if 'sentiment' in schema['properties']:
-            self.assertEqual(set(body), {'product_name', 'rating', 'review_text'})
+            self.assertEqual(set(body), {'product_name', 'review_domain', 'rating', 'review_text'})
             case = next(case for case in self.dataset['cases'] if case['review_text'] == body['review_text'])
             # Fixture oracle only: a perfect mock score is not model accuracy.
             return ProviderResponse(json.dumps({'sentiment': case['expected'], 'confidence': .8,
@@ -85,7 +85,7 @@ class MultilingualEvaluationTests(unittest.TestCase):
         result = run_evaluation(DATASET, self.root / 'run', self.options, provider=self.provider)
         self.assertTrue(result['structural_checks_passed'])
         self.assertEqual(result['mode'], 'injected')
-        self.assertEqual(result['analysis_prompt_version'], 'review-sentiment-v2-multilingual')
+        self.assertEqual(result['analysis_prompt_version'], 'review-sentiment-v4-summary-status')
         self.assertEqual(result['latency']['analysis_requests'], 27)
         for language in ('ko', 'en', 'mixed'):
             self.assertEqual(result['metrics_by_language'][language]['total'], 9)

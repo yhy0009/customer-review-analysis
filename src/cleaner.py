@@ -13,6 +13,7 @@ from src.models import (
     ItemError,
     RawReview,
 )
+from src.review_domain import review_domain_from_payload
 
 logger = get_logger("cleaner")
 
@@ -156,6 +157,11 @@ def _clean_one(
         raw_review.source_review_id
     )
 
+    try:
+        review_domain = review_domain_from_payload(raw_review.raw_payload)
+    except ValueError:
+        raise _RejectedReview("INVALID_REVIEW_DOMAIN", "review domain metadata is invalid") from None
+
     # 6. CleanReview 생성
     cleaned_at = datetime.now(timezone.utc)
 
@@ -167,6 +173,7 @@ def _clean_one(
         rating=rating,
         review_text=review_text,
         cleaned_at=cleaned_at,
+        review_domain=review_domain,
     )
 
 

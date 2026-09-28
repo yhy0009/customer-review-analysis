@@ -1,0 +1,234 @@
+{
+  "version": "human-review-development-45-v1",
+  "source_sha256": {
+    "evaluation/reviews.v1.json": "88f1d4641130b0a8a8d295853982c049b987a4f4aa87498cf6e1a60f45efdb63",
+    "evaluation/reviews.multilingual.v1.json": "7f36b6e07371ac4d63cde572d1968eb767f931f9f0051a57e60cc6bff66bf0c2"
+  },
+  "items": [
+    {
+      "blind_id": "H001",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-u3"
+    },
+    {
+      "blind_id": "H002",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-p3"
+    },
+    {
+      "blind_id": "H003",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p05"
+    },
+    {
+      "blind_id": "H004",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u02"
+    },
+    {
+      "blind_id": "H005",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n05"
+    },
+    {
+      "blind_id": "H006",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-n3"
+    },
+    {
+      "blind_id": "H007",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u05"
+    },
+    {
+      "blind_id": "H008",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-n2"
+    },
+    {
+      "blind_id": "H009",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n04"
+    },
+    {
+      "blind_id": "H010",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-u3"
+    },
+    {
+      "blind_id": "H011",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n01"
+    },
+    {
+      "blind_id": "H012",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-n1"
+    },
+    {
+      "blind_id": "H013",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-n1"
+    },
+    {
+      "blind_id": "H014",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p02"
+    },
+    {
+      "blind_id": "H015",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-p2"
+    },
+    {
+      "blind_id": "H016",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u01"
+    },
+    {
+      "blind_id": "H017",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-p1"
+    },
+    {
+      "blind_id": "H018",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-p1"
+    },
+    {
+      "blind_id": "H019",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n06"
+    },
+    {
+      "blind_id": "H020",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-p2"
+    },
+    {
+      "blind_id": "H021",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-p1"
+    },
+    {
+      "blind_id": "H022",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-u3"
+    },
+    {
+      "blind_id": "H023",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-u2"
+    },
+    {
+      "blind_id": "H024",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-u1"
+    },
+    {
+      "blind_id": "H025",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-u1"
+    },
+    {
+      "blind_id": "H026",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u06"
+    },
+    {
+      "blind_id": "H027",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-n3"
+    },
+    {
+      "blind_id": "H028",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-u1"
+    },
+    {
+      "blind_id": "H029",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p01"
+    },
+    {
+      "blind_id": "H030",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u03"
+    },
+    {
+      "blind_id": "H031",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p04"
+    },
+    {
+      "blind_id": "H032",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-p3"
+    },
+    {
+      "blind_id": "H033",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "u04"
+    },
+    {
+      "blind_id": "H034",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-n1"
+    },
+    {
+      "blind_id": "H035",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-p2"
+    },
+    {
+      "blind_id": "H036",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p03"
+    },
+    {
+      "blind_id": "H037",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-n3"
+    },
+    {
+      "blind_id": "H038",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-u2"
+    },
+    {
+      "blind_id": "H039",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-u2"
+    },
+    {
+      "blind_id": "H040",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "mix-n2"
+    },
+    {
+      "blind_id": "H041",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n02"
+    },
+    {
+      "blind_id": "H042",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "n03"
+    },
+    {
+      "blind_id": "H043",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "ko-p3"
+    },
+    {
+      "blind_id": "H044",
+      "source_dataset": "evaluation/reviews.multilingual.v1.json",
+      "source_id": "en-n2"
+    },
+    {
+      "blind_id": "H045",
+      "source_dataset": "evaluation/reviews.v1.json",
+      "source_id": "p06"
+    }
+  ]
+}

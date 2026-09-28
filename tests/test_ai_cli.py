@@ -173,7 +173,7 @@ class AiCliTests(unittest.TestCase):
         self.client.chat.completions.create.side_effect = self.insight_response
         result = self.run_cli("extract")
         self.assertEqual(result.code, 0, result.stderr)
-        self.assertIn("제품명 없음", result.stdout)
+        self.assertIn("대상명 없음", result.stdout)
         saved = next((self.root / "output/insights").glob("*/*.json"))
         self.assertIsNone(json.loads(saved.read_bytes())["selection_limit"])
         output = self.root / "body-reports"
@@ -181,7 +181,7 @@ class AiCliTests(unittest.TestCase):
         self.assertEqual(result.code, 0, result.stderr)
         result.sdk.assert_not_called()
         report = next(output.glob("*.md")).read_text()
-        self.assertIn("제품명 없음", report)
+        self.assertIn("대상명 없음", report)
         self.assertIn("N/A", report)
         self.assertIn("배송이 늦어서 아쉬웠습니다", report)
 
@@ -243,7 +243,7 @@ class AiCliTests(unittest.TestCase):
             result.sdk.assert_not_called()
         def complete(**kwargs):
             body = json.loads(kwargs['messages'][1]['content'])
-            self.assertEqual(set(body), {'product_name', 'rating', 'review_text'})
+            self.assertEqual(set(body), {'product_name', 'review_domain', 'rating', 'review_text'})
             product, text, label = next(row for row in reviews if row[1] == body['review_text'])
             self.assertEqual(body['product_name'], product)
             return response({'sentiment': label, 'confidence': .8, 'summary': '검증용 한국어 요약입니다.', 'keywords': ['음질']})
@@ -257,7 +257,7 @@ class AiCliTests(unittest.TestCase):
             for detail, (_, text, label) in zip(details, reviews):
                 self.assertEqual(detail.review.review_text, text)
                 self.assertEqual(detail.analysis.sentiment.value, label)
-                self.assertEqual(detail.analysis.prompt_version, 'review-sentiment-v2-multilingual')
+                self.assertEqual(detail.analysis.prompt_version, 'review-sentiment-v4-summary-status')
             self.assertEqual(repo.get_statistics().sentiment_counts, {sentiment: 1 for sentiment in Sentiment})
         result = self.run_cli('analyze', '--all')
         self.assertEqual(result.code, 0, result.stderr)
@@ -268,7 +268,7 @@ class AiCliTests(unittest.TestCase):
         self.assertEqual(result.code, 0, result.stderr)
         exported = [json.loads(line) for line in output.read_text().splitlines()]
         self.assertEqual({row['review_text'] for row in exported}, {row[1] for row in reviews})
-        self.assertEqual({row['prompt_version'] for row in exported}, {'review-sentiment-v2-multilingual'})
+        self.assertEqual({row['prompt_version'] for row in exported}, {'review-sentiment-v4-summary-status'})
 
     def test_multilingual_excel_import_clean_and_analyze(self):
         from openpyxl import Workbook
@@ -285,7 +285,7 @@ class AiCliTests(unittest.TestCase):
         self.assertEqual(json.loads(call.kwargs['messages'][1]['content'])['review_text'], text)
         with SQLiteReviewRepository(self.database) as repo:
             self.assertEqual(repo.get_review(1).review.review_text, text)
-            self.assertEqual(repo.get_review(1).analysis.prompt_version, 'review-sentiment-v2-multilingual')
+            self.assertEqual(repo.get_review(1).analysis.prompt_version, 'review-sentiment-v4-summary-status')
 
     def test_analyze_all_limit_skips_existing_and_saves_configured_result(self):
         self.seed()
@@ -307,7 +307,7 @@ class AiCliTests(unittest.TestCase):
             self.assertEqual(detail.analysis.confidence, .85)
             self.assertEqual(detail.analysis.keywords, ["배송", "포장"])
             self.assertEqual(detail.analysis.model, "test-response-model")
-            self.assertEqual(detail.analysis.prompt_version, "review-sentiment-v2-multilingual")
+            self.assertEqual(detail.analysis.prompt_version, "review-sentiment-v4-summary-status")
         self.assertEqual(details[2].analysis.model, "old-model")
         with SQLiteReviewRepository(self.database) as repository:
             self.assertEqual(repository.fetch_unanalyzed_reviews(), [])

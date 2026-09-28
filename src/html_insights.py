@@ -49,7 +49,9 @@ def _text(value: object) -> str:
 
 
 def _filter_text(filters: ReviewFilter) -> str:
-    conditions = [f"제품명 포함: {filters.product_name}" if filters.product_name is not None else "전체 제품"]
+    conditions = [f"대상명 {'일치' if filters.target_match == 'exact' else '포함'}: {filters.product_name}" if filters.product_name is not None else "전체 대상"]
+    if filters.review_domain is not None:
+        conditions.append(f"리뷰 유형: {filters.review_domain.value}")
     conditions.append(f"기간: {filters.date_from or '시작 제한 없음'} ~ {filters.date_to or '종료 제한 없음'}"
                       if filters.date_from or filters.date_to else "전체 기간")
     labels = {Sentiment.POSITIVE: "긍정", Sentiment.NEUTRAL: "중립", Sentiment.NEGATIVE: "부정"}
@@ -101,7 +103,7 @@ def render_insight_section(insight: InsightResult, *, analyzed_reviews: int) -> 
     if insight.review_count:
         cards.append(f'<article class="panel"><div class="section-heading"><h2>전체 원문 근거</h2>'
                      f'<span class="badge">{len(insight.evidence_groups):,}개 주제</span></div>'
-                     '<p class="note">제품별 주제를 펼쳐 리뷰 번호와 저장된 원문 인용을 확인하세요.</p>')
+                     '<p class="note">대상별 주제를 펼쳐 리뷰 번호와 저장된 원문 인용을 확인하세요.</p>')
         for index, group in enumerate(insight.evidence_groups, 1):
             kind, label = ("complaints", "불편") if group.kind == "complaints" else ("praises", "장점")
             citations = "".join(
@@ -110,7 +112,7 @@ def render_insight_section(insight: InsightResult, *, analyzed_reviews: int) -> 
                 for citation in group.citations)
             cards.append(f'''<details class="insight-evidence"><summary>
 <span class="insight-index">{index:02d}</span><span class="insight-description">
-<span class="insight-product">{_text(group.product_name or '제품명 없음')}</span><strong>{_text(group.label)}</strong></span>
+<span class="insight-product">{_text(group.product_name or '대상명 없음')}</span><strong>{_text(group.label)}</strong></span>
 <span class="insight-kind {kind}">{label}</span><span class="insight-count">{group.review_count:,}건</span>
 <span class="insight-chevron" aria-hidden="true">+</span></summary><div class="insight-citations">{citations}</div></details>''')
         if not insight.evidence_groups:

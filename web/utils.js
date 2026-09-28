@@ -1,7 +1,7 @@
 export const labels = {positive: "긍정", neutral: "중립", negative: "부정"};
 export const number = value => new Intl.NumberFormat("ko-KR").format(value);
 export const percent = value => new Intl.NumberFormat("ko-KR", {style: "percent", maximumFractionDigits: 1}).format(value);
-const filterKeys = ["product_name", "date_from", "date_to", "sentiment", "rating", "rating_min"];
+const filterKeys = ["product_name", "date_from", "date_to", "sentiment", "rating", "rating_min", "review_domain", "target_match"];
 export function dateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "시각 정보 없음" : new Intl.DateTimeFormat("ko-KR", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}).format(date);
@@ -20,6 +20,9 @@ export function readQuery(search) {
   for (const key of [...filterKeys, "page"]) if (params.getAll(key).length > 1) invalid();
   for (const key of filterKeys) if (params.get(key)) filters[key] = params.get(key);
   if ((filters.product_name || "").length > 200) invalid();
+  if (filters.review_domain && !["product", "movie"].includes(filters.review_domain)) invalid();
+  if (filters.target_match && !["contains", "exact"].includes(filters.target_match)) invalid();
+  if (filters.target_match === "exact" && !(filters.product_name || "").trim()) invalid();
   if (filters.sentiment && !Object.hasOwn(labels, filters.sentiment)) invalid();
   for (const key of ["date_from", "date_to"]) {
     if (!filters[key]) continue;
@@ -47,7 +50,8 @@ export function formFilters(values) {
   return readQuery(queryString(filters)).filters;
 }
 export function scopeText(filters) {
-  const parts = [filters.product_name ? `제품명 포함: ${filters.product_name}` : "전체 제품"];
+  const parts = [filters.product_name ? `대상명 ${filters.target_match === "exact" ? "일치" : "포함"}: ${filters.product_name}` : "전체 대상"];
+  if (filters.review_domain) parts.push(filters.review_domain === "movie" ? "영화" : "제품");
   if (filters.date_from || filters.date_to) parts.push(`${filters.date_from || "시작 제한 없음"} ~ ${filters.date_to || "종료 제한 없음"}`);
   else parts.push("전체 기간");
   parts.push(labels[filters.sentiment] || "전체 감정");

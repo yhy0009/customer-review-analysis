@@ -122,7 +122,7 @@ class OptionalReviewTests(unittest.TestCase):
         self.seed_mixed()
         result = ComparisonService(self.repo).compare(ComparisonRequest())
         unknown = next(group for group in result.groups if group.name is None)
-        self.assertEqual(unknown.label, '[제품명 없음]')
+        self.assertEqual(unknown.label, '[대상명 없음]')
         self.assertEqual((unknown.statistics.total_reviews, unknown.product_count), (1, 0))
         category = ComparisonService(self.repo).compare(ComparisonRequest(group_by='category'))
         self.assertEqual(category.groups[0].statistics.total_reviews, 4)
@@ -132,7 +132,7 @@ class OptionalReviewTests(unittest.TestCase):
         self.clean_rows([RawReview(review_text='본문만 있는 리뷰입니다')])
         detail = self.repo.get_review(1)
         text = format_review_detail(detail) + format_review_list(self.repo.list_reviews(ReviewQuery()))
-        for expected in ('제품명 없음', '날짜 없음', 'N/A'):
+        for expected in ('대상명 없음', '날짜 없음', 'N/A'):
             self.assertIn(expected, text)
         self.assertNotIn('None', text)
         self.assertIsNone(public_review(detail)['review_date'])
@@ -147,7 +147,9 @@ class OptionalReviewTests(unittest.TestCase):
         self.assertEqual([row[k] for k in ('product_name', 'review_date', 'rating')], [''] * 3)
         workbook = load_workbook(self.root / 'reviews.xlsx')
         self.addCleanup(workbook.close)
-        self.assertEqual([workbook.active.cell(2, column).value for column in (3, 4, 5)], [None] * 3)
+        headers = [cell.value for cell in workbook.active[1]]
+        self.assertEqual([workbook.active.cell(2, headers.index(name) + 1).value
+                          for name in ('product_name', 'review_date', 'rating')], [None] * 3)
 
     def test_analysis_and_insight_evidence_support_unknown_product(self):
         review = self.clean_rows([RawReview(review_text='배송이 늦었습니다')]).reviews[0]
@@ -162,9 +164,9 @@ class OptionalReviewTests(unittest.TestCase):
         evidence = [{'complaints': [{'label': '배송 지연', 'quote': '배송이 늦었습니다'}], 'praises': []}]
         groups = group_evidence(evidence * 2, [detail, ReviewDetail(replace(review, id=2, product_name='제품'), replace(analysis, review_id=2))])
         insight = InsightResult(ReviewFilter(), 2, self.now, evidence_groups=groups)
-        self.assertIn('제품명 없음', format_insight_result(insight))
+        self.assertIn('대상명 없음', format_insight_result(insight))
         report = FileReportGenerator().generate_report(self.repo.get_statistics(), insight, self.root / 'insight.md', report_format=ReportFormat.MARKDOWN)
-        self.assertIn('제품명 없음', report.path.read_text())
+        self.assertIn('대상명 없음', report.path.read_text())
 
     def test_png_html_and_report_can_be_generated_with_only_body_and_analysis(self):
         review = self.clean_rows([RawReview(review_text='사용하기 편리합니다')]).reviews[0]

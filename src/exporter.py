@@ -28,9 +28,9 @@ from src.models import (
 
 
 EXPORT_FIELDS = (
-    "id", "source_review_id", "product_name", "review_date", "rating",
+    "id", "source_review_id", "product_name", "review_domain", "review_date", "rating",
     "review_text", "cleaned_at", "sentiment", "confidence", "summary",
-    "keywords", "analyzed_at", "provider", "model", "prompt_version",
+    "keywords", "analyzed_at", "provider", "model", "prompt_version", "summary_status",
 )
 _SUFFIXES = {
     ExportFormat.CSV: ".csv",
@@ -47,6 +47,7 @@ def _flatten(detail: ReviewDetail) -> Dict[str, Any]:
         "id": review.id,
         "source_review_id": review.source_review_id,
         "product_name": review.product_name,
+        "review_domain": review.review_domain.value,
         "review_date": review.review_date.isoformat() if review.review_date is not None else None,
         "rating": review.rating,
         "review_text": review.review_text,
@@ -62,6 +63,7 @@ def _flatten(detail: ReviewDetail) -> Dict[str, Any]:
         "provider": analysis.provider if analysis else None,
         "model": analysis.model if analysis else None,
         "prompt_version": analysis.prompt_version if analysis else None,
+        "summary_status": analysis.summary_status.value if analysis else None,
     }
 
 

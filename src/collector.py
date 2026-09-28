@@ -295,6 +295,13 @@ def _build_raw_reviews(
 
             raw_payload[column] = value
 
+        source_name = _normalize_column_name(column_map.get("product_name", ""))
+        if source_name in {"movietitle", "영화명", "영화제목"} and not any(
+            _normalize_column_name(key) in {"reviewdomain", "domain", "리뷰유형", "대상유형"}
+            for key in raw_payload
+        ):
+            raw_payload["review_domain"] = "movie"
+
         review = RawReview(
             source_review_id=source_review_id,
             product_name=product_name,

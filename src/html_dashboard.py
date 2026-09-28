@@ -76,7 +76,7 @@ def render_dashboard_html(
     if not isinstance(generated_at, datetime) or generated_at.utcoffset() is None:
         raise ValidationError("HTML 생성 시각은 시간대가 있는 datetime이어야 합니다.")
     timestamp = generated_at.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    scope = [f"제품: {filters.product_name} (부분 일치)" if filters.product_name else "전체 제품",
+    scope = [f"대상: {filters.product_name} ({'전체 일치' if filters.target_match == 'exact' else '부분 일치'})" if filters.product_name else "전체 대상",
              f"기간: {filters.date_from or '시작 제한 없음'} ~ {filters.date_to or '종료 제한 없음'}"]
     if filters.sentiment is not None:
         scope.append("감정: " + dict(_SENTIMENTS)[filters.sentiment])
@@ -84,6 +84,8 @@ def render_dashboard_html(
         scope.append(f"별점: {filters.rating}")
     if filters.rating_min is not None:
         scope.append(f"최소 별점: {filters.rating_min}")
+    if filters.review_domain is not None:
+        scope.append(f"리뷰 유형: {filters.review_domain.value}")
     scope_html = "".join(f"<span>{_text(item)}</span>" for item in scope)
     coverage = statistics.analyzed_reviews / statistics.total_reviews if statistics.total_reviews else 0
     average = f"{statistics.average_rating:.2f}" if statistics.average_rating is not None else "N/A"

@@ -25,9 +25,11 @@ Excel에 필요한 `openpyxl`은 `requirements.txt`에 포함돼 있다. CSV/JSO
 세 포맷은 다음 순서의 동일한 필드를 사용한다.
 
 ```text
-id, source_review_id, product_name, review_date, rating, review_text, cleaned_at,
-sentiment, confidence, summary, keywords, analyzed_at, provider, model, prompt_version
+id, source_review_id, product_name, review_domain, review_date, rating, review_text, cleaned_at,
+sentiment, confidence, summary, keywords, analyzed_at, provider, model, prompt_version, summary_status
 ```
+
+`review_domain`은 `product` 또는 `movie`다. `summary_status`는 [요약 상태](MOVIE_REVIEWS.md#개별-요약-상태)를 기록하며 미분석 행에서는 비어 있다. 열 위치 대신 헤더 이름으로 읽는 것을 권장한다. `--domain`과 `--target ... --exact-target`으로 내보낼 범위를 지정할 수 있다.
 
 `review_text`는 저장된 정제 본문이다. 날짜는 `YYYY-MM-DD`, 정제·분석 시각은 UTC의
 ISO 8601 `Z` 문자열로 표현한다. 한글·이모지·쉼표·줄바꿈을 보존한다.

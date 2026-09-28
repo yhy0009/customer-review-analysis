@@ -233,7 +233,9 @@ class FileReviewExporterTests(unittest.TestCase):
         target = self._export(ExportFormat.EXCEL, reviews=reviews)
         workbook = load_workbook(target, data_only=False)
         try:
-            cells = [workbook.active.cell(row, 6) for row in range(2, len(texts) + 2)]
+            headers = [cell.value for cell in workbook.active[1]]
+            text_column = headers.index("review_text") + 1
+            cells = [workbook.active.cell(row, text_column) for row in range(2, len(texts) + 2)]
             self.assertEqual([cell.value for cell in cells], texts)
             self.assertEqual([cell.data_type for cell in cells], ["s"] * len(texts))
         finally:
